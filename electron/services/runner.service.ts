@@ -7,6 +7,7 @@ import { mkdirSync, appendFileSync, existsSync, readFileSync } from 'fs'
 import type { TaskHistory, LogChunk, TaskStat, ProjectArtifact } from '../../src/types'
 import { projectRepo } from '../db/repositories'
 import { resolveRunCommand, resolveBuildCommand, findArtifacts } from '../strategies/project-commands'
+import { notify } from './notify.service'
 import { getDb } from '../db'
 
 type Sender = (channel: string, payload: unknown) => void
@@ -180,6 +181,19 @@ class RunnerService {
         entry.autoRestart &&
         !entry.userStopped &&
         entry.attempt < MAX_RESTARTS
+
+      const project = projectRepo.get(entry.task.project_id)
+      const projectName = project?.display_name || project?.name || '项目'
+      if (status === 'success' && entry.task.type === 'build') {
+        notify(`构建完成 · ${projectName}`, entry.cmd.display)
+      } else if (status === 'failed') {
+        notify(
+          `${entry.task.type === 'build' ? '构建' : '运行'}失败 · ${projectName}`,
+          shouldRestart
+            ? `退出码 ${code ?? 'null'}，即将自动重启`
+            : `退出码 ${code ?? 'null'}｜${entry.cmd.display}`
+        )
+      }
 
       if (shouldRestart) {
         entry.attempt += 1

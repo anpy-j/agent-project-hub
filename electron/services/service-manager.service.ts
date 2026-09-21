@@ -9,6 +9,7 @@ import type { ServiceItem, ServiceStatusInfo, ServiceCandidate, ServiceLogChunk,
 import { serviceRepo } from '../db/repositories'
 import { getMainWindowSender } from './runner.service'
 import { aiService } from './ai.service'
+import { notify } from './notify.service'
 
 interface RunningService {
   process: ChildProcess
@@ -143,6 +144,7 @@ class ServiceManagerService {
           message: `服务「${name}」异常退出（退出码 ${code ?? '-'}）${hint ? `。${hint}` : ''}`
         }
         this.send('service:anomaly', anomaly)
+        notify(`服务异常 · ${name}`, anomaly.message)
       } else {
         this.recentOutput.delete(serviceId)
       }
