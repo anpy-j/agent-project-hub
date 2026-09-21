@@ -647,6 +647,16 @@ const typeLabel: Record<string, string> = {
   node: 'Node',
   unknown: '未知'
 }
+const typeColor: Record<string, string> = {
+  'java-maven': '#e76f00',
+  'java-gradle': '#02303a',
+  python: '#3776ab',
+  flutter: '#02569b',
+  vue: '#42b883',
+  react: '#61dafb',
+  node: '#5fa04e',
+  unknown: '#909399'
+}
 const stageLabel: Record<string, string> = {
   planning: '规划中',
   developing: '开发中',
@@ -699,13 +709,17 @@ onMounted(() => {
               {{ displayNameOf(project) }}<span v-if="englishNameOf(project)" class="name-en">({{ englishNameOf(project) }})</span><el-icon class="edit-icon"><Edit /></el-icon>
             </h2>
           </template>
-          <el-tag size="small">{{ typeLabel[project.type] || project.type }}</el-tag>
+          <el-tag
+            size="small"
+            :style="{ backgroundColor: typeColor[project.type] || '#909399', color: '#fff', border: 'none' }"
+          >{{ typeLabel[project.type] || project.type }}</el-tag>
           <el-tag v-if="project.framework" size="small" effect="plain">{{ project.framework }}</el-tag>
+          <el-tag v-for="tag in (project.tags || []).slice(0, 3)" :key="tag" size="small" type="warning" effect="plain">{{ tag }}</el-tag>
           <span v-if="runTask?.status === 'running'" class="run-badge"><span class="dot" />运行中</span>
           <span v-else-if="external.running" class="run-badge ext"><span class="dot" />外部进程</span>
         </div>
         <div class="meta-line">
-          <span class="path" :title="project.path" @click="openFolder()">{{ project.path }}</span>
+          <span class="path mono" :title="project.path" @click="openFolder()">{{ project.path }}</span>
           <template v-if="git?.isGit">
             <span class="sep">·</span>
             <span class="mono">⑂ {{ git.branch }}</span>
@@ -920,15 +934,13 @@ onMounted(() => {
                 <el-button size="small" text @click="loadCommits"><el-icon><Refresh /></el-icon>刷新</el-button>
               </div>
             </template>
-            <el-table v-if="commits.length" :data="commits" size="small" max-height="280">
-              <el-table-column label="提交" width="90">
-                <template #default="{ row }"><span class="mono hash">{{ row.hash }}</span></template>
-              </el-table-column>
-              <el-table-column prop="message" label="说明" show-overflow-tooltip />
-              <el-table-column label="时间" width="140">
-                <template #default="{ row }"><span class="time">{{ fmtTime(row.date) }}</span></template>
-              </el-table-column>
-            </el-table>
+            <div v-if="commits.length" class="commit-list">
+              <div v-for="c in commits" :key="c.hash" class="commit-row">
+                <span class="mono hash">{{ c.hash.slice(0, 7) }}</span>
+                <span class="commit-msg" :title="c.message">{{ c.message }}</span>
+                <span class="time">{{ fmtTime(c.date) }}</span>
+              </div>
+            </div>
             <el-empty v-else description="暂无提交记录" :image-size="60" />
           </el-card>
         </div>
@@ -1039,8 +1051,14 @@ onMounted(() => {
 .edit-icon { font-size: 12px; color: var(--el-text-color-secondary); margin-left: 6px; }
 .meta-line { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--el-text-color-secondary); flex-wrap: wrap; }
 .sep { color: var(--el-border-color); }
+.path { cursor: pointer; color: var(--el-text-color-secondary); }
+.path:hover { color: var(--el-color-primary); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.hash { color: var(--el-color-primary); font-weight: 600; }
+.hash { color: var(--el-color-primary); font-weight: 600; font-size: 12px; background: var(--el-fill-color); border-radius: 4px; padding: 1px 6px; flex-shrink: 0; }
+.commit-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; }
+.commit-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--el-border-color-lighter); font-size: 13px; }
+.commit-row:last-child { border-bottom: none; }
+.commit-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--el-text-color-regular); }
 .dim { color: var(--el-text-color-secondary); }
 .desc-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
@@ -1050,7 +1068,8 @@ onMounted(() => {
 .progress-top { display: flex; align-items: center; gap: 16px; padding: 0 4px; }
 .progress-num { font-size: 24px; font-weight: 700; color: var(--el-color-primary); width: 64px; }
 .stage { margin: 14px 0; }
-.remote-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--el-border-color-light); border-radius: 6px; margin-bottom: 8px; }
+.remote-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--el-border-color-light); border-radius: 8px; margin-bottom: 8px; transition: border-color 0.15s ease; }
+.remote-row:hover { border-color: var(--el-color-primary-light-5); }
 .remote-url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--el-text-color-secondary); }
 .link-name { margin-top: 10px; }
 .tip-line { font-size: 12px; color: var(--el-text-color-secondary); }
@@ -1058,7 +1077,8 @@ onMounted(() => {
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .branch-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .changes-list { max-height: 180px; overflow-y: auto; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
-.change-row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid var(--el-border-color-light); border-radius: 6px; cursor: pointer; }
+.change-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--el-border-color-light); border-radius: 8px; cursor: pointer; transition: border-color 0.15s ease; }
+.change-row:hover { border-color: var(--el-color-primary-light-5); }
 .sub-title { font-weight: 600; margin: 10px 0 8px; color: var(--el-text-color-primary); }
 .cmd-list { display: flex; flex-direction: column; gap: 8px; }
 .cmd-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--el-border-color-light); border-radius: 8px; transition: border-color 0.15s ease, background-color 0.15s ease; }
@@ -1088,6 +1108,6 @@ onMounted(() => {
 .task-title { flex: 1; color: var(--el-text-color-regular); }
 .task-title.done { color: var(--el-text-color-secondary); text-decoration: line-through; }
 .task-summary { font-size: 12px; color: var(--el-text-color-secondary); }
-.restart-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--el-border-color-light); border-radius: 8px; }
+.restart-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--el-border-color-light); border-radius: 10px; background: var(--el-fill-color-lighter); }
 .restart-info b { font-size: 13px; color: var(--el-text-color-primary); }
 </style>

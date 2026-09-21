@@ -140,7 +140,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
       </div>
     </aside>
     <el-main class="app-main">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <transition name="page-fade" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </router-view>
     </el-main>
 
     <el-dialog v-model="helpVisible" title="键盘快捷键" width="420">
@@ -290,6 +294,35 @@ nav {
 <style>
 /* 侧边栏内下拉面板保持深色观感 */
 .side-select-popper.el-popper {
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+.side-select-popper .el-select-dropdown__item {
+  color: #cbd5e1;
+}
+.side-select-popper .el-select-dropdown__item.is-hovering {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.side-select-popper .el-select-dropdown__item.is-selected {
+  color: #60a5fa;
+  font-weight: 600;
+}
+.side-select-popper .el-popper__arrow::before {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* 页面切换微动效（150ms，可访问性降级见 theme.css） */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+.page-fade-leave-to {
+  opacity: 0;
 }
 </style>

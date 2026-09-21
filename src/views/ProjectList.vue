@@ -437,11 +437,11 @@ onHotkey('new-project', openAdd)
                 <span class="stage-text">{{ stageLabel[row.progress_stage] || '规划中' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="100">
+            <el-table-column label="状态" width="110">
               <template #default="{ row }">
-                <el-tag v-if="runningTasks[row.id]" type="warning" size="small">运行中</el-tag>
-                <el-tag v-else-if="!row.remotes?.length" type="info" size="small">未关联</el-tag>
-                <el-tag v-else type="success" size="small">正常</el-tag>
+                <span v-if="runningTasks[row.id]" class="state-chip is-running"><span class="dot" />运行中</span>
+                <span v-else-if="!row.remotes?.length" class="state-chip is-muted"><span class="dot" />未关联</span>
+                <span v-else class="state-chip is-ok"><span class="dot" />正常</span>
               </template>
             </el-table-column>
             <el-table-column label="最近活动" width="120">
@@ -557,6 +557,11 @@ onHotkey('new-project', openAdd)
               </div>
             </div>
           </el-card>
+          <div class="add-card" @click="openAdd">
+            <div class="add-icon"><el-icon :size="22"><Plus /></el-icon></div>
+            <span class="add-title">添加项目</span>
+            <span class="add-sub">本地路径 + 关联仓库，一键纳管</span>
+          </div>
         </div>
       </template>
     </div>
@@ -791,6 +796,44 @@ onHotkey('new-project', openAdd)
   gap: 6px;
   justify-content: flex-end;
 }
+.state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.state-chip .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.state-chip.is-ok {
+  background: var(--el-color-success-light-9);
+  color: var(--el-color-success);
+}
+.state-chip.is-ok .dot { background: var(--el-color-success); }
+.state-chip.is-running {
+  background: var(--el-color-warning-light-9);
+  color: var(--el-color-warning);
+  font-weight: 600;
+}
+.state-chip.is-running .dot {
+  background: var(--el-color-warning);
+  animation: blink 1.2s infinite;
+}
+.state-chip.is-muted {
+  background: var(--el-fill-color);
+  color: var(--el-text-color-secondary);
+}
+.state-chip.is-muted .dot { background: var(--el-text-color-placeholder); }
+@keyframes blink {
+  50% { opacity: 0.25; }
+}
 .text-muted {
   color: var(--el-text-color-secondary);
 }
@@ -799,6 +842,44 @@ onHotkey('new-project', openAdd)
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
   align-content: start;
+}
+.add-card {
+  border: 2px dashed var(--el-border-color);
+  border-radius: 12px;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--el-text-color-secondary);
+  transition: border-color 0.18s ease, color 0.18s ease, background-color 0.18s ease;
+}
+.add-card:hover {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+}
+.add-card .add-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  margin-bottom: 4px;
+}
+.add-card .add-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+.add-card .add-sub {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 .project-card {
   display: flex;
