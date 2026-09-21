@@ -11,6 +11,7 @@ import { gitSummary, readRemotes, detectPlatformOf, gitLog, gitInit, gitSetRemot
 import type { Project, ProjectRemote, ServiceCandidate, AiConfig } from '../../src/types'
 import { aiService } from '../services/ai.service'
 import { getDb } from '../db'
+import { logUsage, runMaintenanceNow } from '../services/maintenance.service'
 
 const STAGE_RANK: Record<string, number> = { planning: 0, developing: 1, testing: 2, released: 3 }
 
@@ -331,6 +332,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('task:readLog', (_e, taskId: string) => runnerService.readLog(taskId))
 
   // ---- system ----
+  ipcMain.handle('system:maintenance', () => runMaintenanceNow())
+  ipcMain.handle('system:logUsage', () => logUsage())
   ipcMain.handle('system:openPath', (_e, path: string) => shell.openPath(path))
   ipcMain.handle('system:openExternal', (_e, url: string) => shell.openExternal(url))
   ipcMain.handle('system:pickDirectory', async () => {

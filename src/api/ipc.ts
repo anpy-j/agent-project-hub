@@ -20,7 +20,9 @@ import type {
   AgentSearchResult,
   AiConfig,
   AiProviderOption,
-  ProjectArtifact
+  ProjectArtifact,
+  LogUsage,
+  MaintenanceResult
 } from '@/types'
 
 export interface ProjectHubAPI {
@@ -127,6 +129,8 @@ export interface ProjectHubAPI {
     test: (cfg?: AiConfig) => Promise<string>
   }
   system: {
+    logUsage: () => Promise<LogUsage>
+    maintenance: () => Promise<MaintenanceResult>
     openPath: (path: string) => Promise<void>
     openExternal: (url: string) => Promise<void>
     pickDirectory: () => Promise<string | null>

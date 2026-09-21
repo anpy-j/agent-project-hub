@@ -44,6 +44,17 @@ export interface GitSummary {
   lastCommit: { hash: string; message: string; author: string; date: string } | null
 }
 
+export interface LogUsage {
+  files: number
+  bytes: number
+}
+
+export interface MaintenanceResult {
+  removedTasks: number
+  removedFiles: number
+  usage: LogUsage
+}
+
 export interface ProjectArtifact {
   name: string
   path: string

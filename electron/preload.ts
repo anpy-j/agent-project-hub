@@ -119,6 +119,8 @@ const api: ProjectHubAPI = {
     test: (cfg?) => invoke('ai:test', cfg)
   },
   system: {
+    logUsage: () => invoke('system:logUsage'),
+    maintenance: () => invoke('system:maintenance'),
     openPath: (path: string) => invoke('system:openPath', path),
     openExternal: (url: string) => invoke('system:openExternal', url),
     pickDirectory: () => invoke('system:pickDirectory') as Promise<string | null>

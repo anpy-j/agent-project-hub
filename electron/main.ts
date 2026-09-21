@@ -6,6 +6,7 @@ import { registerIpcHandlers } from './ipc/handlers'
 import { runnerService } from './services/runner.service'
 import { runtimeService } from './services/runtime.service'
 import { serviceManager } from './services/service-manager.service'
+import { runStartupMaintenance } from './services/maintenance.service'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -56,6 +57,7 @@ app.whenReady().then(() => {
   })
 
   getDb()
+  runStartupMaintenance()
   registerIpcHandlers()
   runtimeService.scan()
   serviceManager.autostart()

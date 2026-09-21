@@ -1,12 +1,41 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import type { Runtime, AiConfig, AiProviderOption, AiProvider } from '../types'
+import type { Runtime, AiConfig, AiProviderOption, AiProvider, LogUsage, MaintenanceResult } from '../types'
 import PageHeader from '../components/PageHeader.vue'
 
 // ---- 运行时管理 ----
 const runtimes = ref<Runtime[]>([])
+const logUsage = ref<LogUsage>({ files: 0, bytes: 0 })
+const cleaning = ref(false)
 const scanning = ref(false)
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+async function loadLogUsage() {
+  try {
+    logUsage.value = await window.api.system.logUsage()
+  } catch {
+    // ignore
+  }
+}
+
+async function runCleanup() {
+  cleaning.value = true
+  try {
+    const r: MaintenanceResult = await window.api.system.maintenance()
+    logUsage.value = r.usage
+    ElMessage.success(`已清理 ${r.removedTasks} 条历史、${r.removedFiles} 个日志文件`)
+  } catch (e) {
+    ElMessage.error(`清理失败: ${(e as Error).message}`)
+  } finally {
+    cleaning.value = false
+  }
+}
 
 async function load() {
   runtimes.value = await window.api.runtime.list()
@@ -140,6 +169,7 @@ async function testAi() {
 
 onMounted(() => {
   load()
+  loadLogUsage()
   loadAi()
 })
 </script>
@@ -243,6 +273,19 @@ onMounted(() => {
           </el-table-column>
         </el-table>
       </el-card>
+
+      <el-card>
+        <template #header>
+          <b>数据与日志</b>
+        </template>
+        <div class="maint-row">
+          <div class="maint-info">
+            <div class="maint-line">任务日志：<b>{{ logUsage.files }}</b> 个文件，共 <b>{{ formatBytes(logUsage.bytes) }}</b></div>
+            <div class="maint-tip">每个项目保留最近 200 条任务记录，日志文件保留 14 天，启动时自动整理。</div>
+          </div>
+          <el-button size="small" :loading="cleaning" @click="runCleanup">立即清理</el-button>
+        </div>
+      </el-card>
     </div>
   </div>
 </template>
@@ -272,6 +315,22 @@ onMounted(() => {
 }
 .form-tip {
   margin-left: 10px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.maint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.maint-line {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+.maint-tip {
+  margin-top: 4px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
