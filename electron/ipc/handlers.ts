@@ -7,7 +7,7 @@ import { runtimeService } from '../services/runtime.service'
 import { runnerService, getMainWindowSender } from '../services/runner.service'
 import { serviceManager } from '../services/service-manager.service'
 
-import { gitSummary, readRemotes, detectPlatformOf, toWebUrl, gitLog, gitInit, gitSetRemote, gitCommitAll, gitCommitFiles, gitPushUpstream, gitPullSafe, gitPushSimple, gitBranches, gitCheckout } from '../services/git.service'
+import { gitSummary, readRemotes, detectPlatformOf, gitLog, gitInit, gitSetRemote, gitCommitAll, gitCommitFiles, gitPushUpstream, gitPullSafe, gitPushSimple, gitBranches, gitCheckout } from '../services/git.service'
 import type { Project, ProjectRemote, ServiceCandidate, AiConfig } from '../../src/types'
 import { aiService } from '../services/ai.service'
 import { getDb } from '../db'
@@ -17,7 +17,8 @@ const STAGE_RANK: Record<string, number> = { planning: 0, developing: 1, testing
 function syncProgress(projectId: string): { percent: number; stage: string; stageChanged: boolean } {
   const tasks = taskRepo.listByProject(projectId)
   const done = tasks.filter((t) => t.done).length
-  const percent = tasks.length === 0 ? 100 : Math.round((done / tasks.length) * 100)
+  // 没有任务时进度为 0（原先记 100% 会与「规划中」阶段自相矛盾）
+  const percent = tasks.length === 0 ? 0 : Math.round((done / tasks.length) * 100)
   const project = projectRepo.get(projectId)
   const prevStage = project?.progress_stage || 'planning'
   let stage: Project['progress_stage'] = prevStage
@@ -145,7 +146,6 @@ export function registerIpcHandlers(): void {
     remoteRepo.replaceAll(id, remotes)
     return projectRepo.get(id)
   })
-  ipcMain.handle('git:openRepo', (_e, url: string) => shell.openExternal(toWebUrl(url)))
 
   // ---- git 仓库操作 ----
   ipcMain.handle('git:init', (_e, id: string) => {
@@ -198,11 +198,13 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('project:customCommands:get', (_e, id: string) => getCustomCommands(id))
   ipcMain.handle('project:customCommands:save', (_e, id: string, cmds: string[]) => {
     const db = getDb()
-    const json = JSON.stringify(cmds.filter((c) => typeof c === 'string' && c.trim()))
+    const clean = (Array.isArray(cmds) ? cmds : [])
+      .filter((c) => typeof c === 'string' && c.trim())
+      .map((c) => c.trim())
     db.prepare(
       `INSERT INTO project_config (project_id, run_command) VALUES (@id, @cmds)
        ON CONFLICT(project_id) DO UPDATE SET run_command = excluded.run_command`
-    ).run({ id, cmds: JSON.stringify(cmds) })
+    ).run({ id, cmds: JSON.stringify(clean) })
     return getCustomCommands(id)
   })
   // ---- 任务（驱动开发进度） ----

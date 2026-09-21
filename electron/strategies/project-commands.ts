@@ -193,10 +193,12 @@ function pkgScripts(projectPath: string): Array<{ name: string; cmd: string; bin
   if (!pkg) return []
   const scripts = (pkg.scripts as Record<string, string>) || {}
   const priority = ['dev', 'start', 'serve', 'preview', 'build', 'test', 'lint']
+  const rank = (key: string): number => (priority.indexOf(key) === -1 ? 99 : priority.indexOf(key))
   const keys = Object.keys(scripts).sort((a, b) => {
-    const pa = priority.indexOf(a) === -1 ? 99 : priority.indexOf(a)
-    const pb = priority.indexOf(b) === -1 ? 99 : 99
-    return pa - pb
+    const pa = rank(a)
+    const pb = rank(b)
+    // 同优先级（含都未命中）时保持 package.json 里的声明顺序
+    return pa === pb ? 0 : pa - pb
   })
   return keys.slice(0, 6).map((key) => ({
     name: `npm run ${key}`,
