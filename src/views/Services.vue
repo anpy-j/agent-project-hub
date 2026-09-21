@@ -576,21 +576,23 @@ onUnmounted(() => {
   margin-bottom: 16px;
 }
 .stat-card {
-  background: #fff;
+  background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 16px 18px;
   display: flex;
   align-items: center;
   gap: 14px;
+  box-shadow: var(--ph-shadow-soft);
 }
 .stat-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 .tone-primary {
   background: var(--el-color-primary-light-9);
@@ -609,10 +611,11 @@ onUnmounted(() => {
   color: var(--el-color-danger);
 }
 .stat-num {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--el-text-color-primary);
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 .stat-label {
   font-size: 12px;
@@ -623,10 +626,12 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 .table-card {
   flex: 1;
   overflow: hidden;
+  border-radius: 12px;
 }
 .cell-service {
   display: flex;
@@ -645,7 +650,7 @@ onUnmounted(() => {
 .svc-command {
   font-size: 12px;
   color: var(--el-text-color-secondary);
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -674,7 +679,7 @@ onUnmounted(() => {
   color: var(--el-text-color-placeholder);
 }
 .mono {
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .cwd-row {
   display: flex;

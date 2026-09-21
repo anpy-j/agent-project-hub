@@ -372,8 +372,12 @@ onHotkey('new-project', openAdd)
       </el-select>
       <span class="flex-1" />
       <el-radio-group v-model="viewMode" size="small">
-        <el-radio-button value="table"><el-icon><Grid /></el-icon></el-radio-button>
-        <el-radio-button value="card"><el-icon><Menu /></el-icon></el-radio-button>
+        <el-tooltip content="表格视图" placement="top">
+          <el-radio-button value="table"><el-icon><Menu /></el-icon></el-radio-button>
+        </el-tooltip>
+        <el-tooltip content="卡片视图" placement="top">
+          <el-radio-button value="card"><el-icon><Grid /></el-icon></el-radio-button>
+        </el-tooltip>
       </el-radio-group>
     </div>
 
@@ -491,7 +495,8 @@ onHotkey('new-project', openAdd)
             v-for="p in g.rows"
             :key="p.id"
             class="project-card"
-            shadow="hover"
+            shadow="never"
+            :style="{ '--card-accent': typeColor[p.type] || '#909399' }"
             @click="router.push(`/projects/${p.id}`)"
           >
             <div class="card-head">
@@ -513,22 +518,43 @@ onHotkey('new-project', openAdd)
               <el-icon><FolderOpened /></el-icon>
               <span>{{ p.path }}</span>
             </div>
-            <div class="actions">
-              <el-button
-                v-if="!runningTasks[p.id]"
-                type="primary"
-                size="small"
-                @click.stop="openRunDialog(p)"
-              >
-                <el-icon><VideoPlay /></el-icon>运行
-              </el-button>
-              <el-button v-else type="danger" size="small" @click.stop="stopProject(p)">
-                <el-icon><VideoPause /></el-icon>停止
-              </el-button>
-              <el-button size="small" @click.stop="router.push(`/projects/${p.id}`)">详情</el-button>
-              <el-button size="small" text type="danger" @click.stop="removeProject(p)">
-                <el-icon><Delete /></el-icon>
-              </el-button>
+            <div class="card-progress">
+              <el-progress
+                :percentage="p.progress_percent || 0"
+                :stroke-width="6"
+                :show-text="false"
+                class="progress"
+              />
+              <span class="progress-num">{{ p.progress_percent || 0 }}%</span>
+              <span class="stage-chip">{{ stageLabel[p.progress_stage] || '规划中' }}</span>
+            </div>
+            <div class="card-foot">
+              <span class="cell-time">{{ timeAgo(p.last_run_at || p.updated_at) }}</span>
+              <div class="actions">
+                <el-button
+                  v-if="!runningTasks[p.id]"
+                  type="primary"
+                  size="small"
+                  @click.stop="openRunDialog(p)"
+                >
+                  <el-icon><VideoPlay /></el-icon>运行
+                </el-button>
+                <el-button v-else type="danger" size="small" @click.stop="stopProject(p)">
+                  <el-icon><VideoPause /></el-icon>停止
+                </el-button>
+                <el-button size="small" @click.stop="router.push(`/projects/${p.id}`)">详情</el-button>
+                <el-dropdown trigger="click" @command="(cmd: string) => onRowMenu(cmd, p)">
+                  <el-button size="small" @click.stop>
+                    <el-icon><MoreFilled /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="finder">打开目录</el-dropdown-item>
+                      <el-dropdown-item command="remove" divided>删除项目</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
             </div>
           </el-card>
         </div>
@@ -615,19 +641,25 @@ onHotkey('new-project', openAdd)
 .stat-card {
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
-  border-radius: 10px;
-  padding: 16px 18px;
+  border-radius: 12px;
+  padding: 18px 20px;
   display: flex;
   align-items: center;
   gap: 14px;
+  box-shadow: var(--ph-shadow-soft);
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+}
+.stat-card:hover {
+  box-shadow: var(--ph-shadow-lift, 0 12px 40px rgba(15, 23, 42, 0.08));
 }
 .stat-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 .tone-primary {
   background: var(--el-color-primary-light-9);
@@ -646,10 +678,11 @@ onHotkey('new-project', openAdd)
   color: var(--el-color-info);
 }
 .stat-num {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--el-text-color-primary);
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 .stat-label {
   font-size: 12px;
@@ -686,6 +719,10 @@ onHotkey('new-project', openAdd)
 .table-card {
   overflow: hidden;
   margin-bottom: 8px;
+  border-radius: 12px;
+}
+.table-card :deep(.el-table__row) {
+  cursor: pointer;
 }
 .cell-project {
   display: flex;
@@ -767,6 +804,11 @@ onHotkey('new-project', openAdd)
   display: flex;
   flex-direction: column;
   cursor: pointer;
+  border-top: 3px solid var(--card-accent, var(--el-color-primary));
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+.project-card:hover {
+  box-shadow: var(--ph-shadow-lift, 0 12px 40px rgba(15, 23, 42, 0.08));
 }
 .card-head {
   display: flex;
@@ -780,6 +822,43 @@ onHotkey('new-project', openAdd)
   gap: 6px;
   margin-bottom: 8px;
   flex-wrap: wrap;
+}
+.card-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 10px;
+}
+.card-progress .progress {
+  flex: 1;
+}
+.card-progress .progress-num {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  width: 36px;
+  font-variant-numeric: tabular-nums;
+}
+.card-progress .stage-chip {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.card-foot {
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 10px;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.card-foot .cell-time {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
 }
 .name {
   font-weight: 600;
@@ -799,8 +878,9 @@ onHotkey('new-project', openAdd)
   gap: 6px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   cursor: pointer;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   overflow: hidden;
 }
 .path span {

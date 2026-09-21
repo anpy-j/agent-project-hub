@@ -148,6 +148,7 @@ onMounted(() => {
   <div class="settings-view">
     <div class="toolbar">
       <h2>设置</h2>
+      <p class="head-sub">运行时、AI 服务发现等全局配置</p>
     </div>
 
     <!-- AI 设置 -->
@@ -246,7 +247,7 @@ onMounted(() => {
 
 <style scoped>
 .settings-view {
-  padding: 20px;
+  padding: 20px 24px;
   height: 100%;
   overflow-y: auto;
 }
@@ -255,7 +256,13 @@ onMounted(() => {
 }
 .toolbar h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 20px;
+  color: var(--el-text-color-primary);
+}
+.head-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
 .card-head {
   display: flex;

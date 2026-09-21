@@ -685,6 +685,7 @@ onMounted(() => {
       <el-button text @click="router.push('/projects')">
         <el-icon><ArrowLeft /></el-icon>返回项目列表
       </el-button>
+      <span class="toolbar-crumb">项目详情</span>
     </div>
 
     <template v-if="project">
@@ -1028,10 +1029,11 @@ onMounted(() => {
 
 <style scoped>
 .detail-view { height: 100%; overflow-y: auto; padding: 20px 24px; }
-.toolbar { margin-bottom: 12px; }
-.head-card { margin-bottom: 16px; }
+.toolbar { margin-bottom: 12px; display: flex; align-items: center; gap: 4px; }
+.toolbar-crumb { font-size: 13px; color: var(--el-text-color-secondary); }
+.head-card { margin-bottom: 16px; border-radius: 12px; }
 .head-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.name { margin: 0; display: inline-flex; align-items: center; gap: 4px; cursor: text; }
+.name { margin: 0; display: inline-flex; align-items: center; gap: 4px; cursor: text; font-size: 20px; color: var(--el-text-color-primary); }
 .name-en { font-size: 13px; font-weight: 400; color: var(--el-text-color-secondary); }
 .name-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .edit-icon { font-size: 12px; color: var(--el-text-color-secondary); margin-left: 6px; }
@@ -1059,7 +1061,8 @@ onMounted(() => {
 .change-row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid var(--el-border-color-light); border-radius: 6px; cursor: pointer; }
 .sub-title { font-weight: 600; margin: 10px 0 8px; color: var(--el-text-color-primary); }
 .cmd-list { display: flex; flex-direction: column; gap: 8px; }
-.cmd-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--el-border-color-light); border-radius: 6px; }
+.cmd-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--el-border-color-light); border-radius: 8px; transition: border-color 0.15s ease, background-color 0.15s ease; }
+.cmd-row:hover { border-color: var(--el-color-primary-light-5); background: var(--el-color-primary-light-9); }
 .cmd-text { flex: 1; font-size: 12px; color: var(--el-text-color-regular); }
 .custom-add { display: flex; gap: 8px; margin-top: 10px; }
 .run-state { display: inline-flex; align-items: center; gap: 6px; color: var(--el-color-warning); font-size: 12px; }
@@ -1069,7 +1072,7 @@ onMounted(() => {
 .run-badge .dot { background: var(--el-color-warning); animation: blink 1.2s infinite; }
 .run-badge.ext { color: var(--el-color-info); }
 .run-badge.ext .dot { background: var(--el-color-info); }
-.log-box { background: #0f172a; color: #86efac; border-radius: 6px; padding: 10px; max-height: 140px; overflow-y: auto; margin-top: 10px; }
+.log-box { background: var(--ph-ink, #0f172a); color: #86efac; border-radius: 10px; padding: 12px; max-height: 140px; overflow-y: auto; margin-top: 10px; }
 .log-box pre { margin: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
 .time { font-size: 12px; color: var(--el-text-color-secondary); }
 .task-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
@@ -1077,7 +1080,9 @@ onMounted(() => {
 .task-group { margin-bottom: 10px; }
 .task-group-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--el-text-color-secondary); padding: 4px 2px; }
 .task-group-count { font-weight: 400; }
-.task-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--el-border-color-light); border-radius: 6px; }
+.task-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--el-border-color-light); border-radius: 8px; transition: border-color 0.15s ease; }
+.task-row:hover { border-color: var(--el-color-primary-light-5); }
+.task-row.done-row { opacity: 0.75; }
 .task-ops { display: flex; align-items: center; gap: 0; flex-shrink: 0; }
 .task-ops .el-button + .el-button { margin-left: 0; }
 .task-title { flex: 1; color: var(--el-text-color-regular); }
