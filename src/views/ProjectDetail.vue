@@ -1087,9 +1087,11 @@ onMounted(async () => {
             </div>
             <div v-if="artifacts.length" class="artifact-list">
               <div v-for="a in artifacts" :key="a.path" class="artifact-row">
-                <el-icon><FolderOpened /></el-icon>
-                <span class="artifact-name mono">{{ a.name }}</span>
-                <span class="artifact-path mono" :title="a.path">{{ a.path }}</span>
+                <el-icon class="artifact-icon"><FolderOpened /></el-icon>
+                <div class="artifact-meta">
+                  <span class="artifact-name mono" :title="a.name">{{ a.name }}</span>
+                  <span class="artifact-path mono" :title="a.path">{{ a.path }}</span>
+                </div>
                 <el-button size="small" text type="primary" @click="openArtifact(a.path)">打开目录</el-button>
               </div>
             </div>
@@ -1180,8 +1182,8 @@ onMounted(async () => {
 .commit-row:last-child { border-bottom: none; }
 .commit-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--el-text-color-regular); }
 .dim { color: var(--el-text-color-secondary); }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-.col { display: flex; flex-direction: column; gap: 16px; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .block { margin-bottom: 16px; }
 .head-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .progress-top { display: flex; align-items: center; gap: 16px; padding: 0 4px; }
@@ -1202,7 +1204,7 @@ onMounted(async () => {
 .cmd-list { display: flex; flex-direction: column; gap: 8px; }
 .cmd-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--el-border-color-light); border-radius: 8px; transition: border-color 0.15s ease, background-color 0.15s ease; }
 .cmd-row:hover { border-color: var(--el-color-primary-light-5); background: var(--el-color-primary-light-9); }
-.cmd-text { flex: 1; font-size: 12px; color: var(--el-text-color-regular); }
+.cmd-text { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; color: var(--el-text-color-regular); }
 .custom-add { display: flex; gap: 8px; margin-top: 10px; }
 .run-state { display: inline-flex; align-items: center; gap: 6px; color: var(--el-color-warning); font-size: 12px; }
 .run-state .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--el-color-warning); animation: blink 1.2s infinite; }
@@ -1227,11 +1229,13 @@ onMounted(async () => {
 .build-row .cmd-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .artifact-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--el-border-color-light); border-radius: 8px; }
-.artifact-name { font-size: 12.5px; font-weight: 600; color: var(--el-text-color-primary); }
-.artifact-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--el-text-color-secondary); }
+.artifact-icon { flex-shrink: 0; color: var(--el-text-color-secondary); }
+.artifact-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.artifact-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--el-text-color-primary); }
+.artifact-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--el-text-color-secondary); }
 .restart-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--el-border-color-light); border-radius: 10px; background: var(--el-fill-color-lighter); }
 .restart-info b { font-size: 13px; color: var(--el-text-color-primary); }
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .grid { grid-template-columns: minmax(0, 1fr); }
   .edit-grid { grid-template-columns: minmax(0, 1fr); }
 }
