@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit as EditIcon, RefreshRight, Search, VideoPlay, VideoPause } from '@element-plus/icons-vue'
-import type { GitBranch, GitCommit, GitSummary, LogChunk, Project, RunSuggestion, TaskHistory, TaskItem } from '../types'
+import type { GitBranch, GitCommit, GitSummary, LogChunk, Project, ProjectArtifact, RunSuggestion, TaskHistory, TaskItem } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -43,6 +43,14 @@ const external = ref<{ running: boolean; processes: Array<{ pid: number; command
   running: false,
   processes: []
 })
+
+const buildCommand = ref('')
+const buildTask = ref<TaskHistory | null>(null)
+const buildTaskId = ref('')
+const buildLogs = ref<string[]>([])
+const buildLogsText = computed(() => buildLogs.value.join(''))
+const buildLogBoxRef = ref<HTMLElement | null>(null)
+const artifacts = ref<ProjectArtifact[]>([])
 
 const tasks = ref<TaskItem[]>([])
 const newTaskTitle = ref('')
@@ -437,6 +445,73 @@ function onRunStatus(task: TaskHistory) {
   history.value = [task, ...history.value.filter((t) => t.id !== task.id)].slice(0, 20)
 }
 
+/* ---------- 打包 / 构建 ---------- */
+async function loadBuildInfo() {
+  try {
+    buildCommand.value = await window.api.project.buildCommand(projectId)
+  } catch {
+    buildCommand.value = ''
+  }
+  try {
+    artifacts.value = await window.api.runner.artifacts(projectId)
+  } catch {
+    artifacts.value = []
+  }
+}
+
+async function startBuild() {
+  if (buildTask.value?.status === 'running') {
+    ElMessage.warning('构建正在进行中')
+    return
+  }
+  try {
+    const taskId = await window.api.runner.startBuild(projectId)
+    buildTaskId.value = taskId
+    buildLogs.value = [`$ ${buildCommand.value}`, '']
+    buildTask.value = {
+      id: taskId,
+      project_id: projectId,
+      type: 'build',
+      status: 'running',
+      command: buildCommand.value,
+      log_path: null,
+      pid: null,
+      exit_code: null,
+      started_at: new Date().toISOString(),
+      ended_at: null
+    }
+    nextTick(() => {
+      if (buildLogBoxRef.value) buildLogBoxRef.value.scrollTop = buildLogBoxRef.value.scrollHeight
+    })
+  } catch (e) {
+    ElMessage.error(`构建启动失败: ${(e as Error).message}`)
+  }
+}
+
+function appendBuildLog(chunk: LogChunk) {
+  if (chunk.taskId !== buildTaskId.value) return
+  buildLogs.value.push(chunk.data)
+  if (buildLogs.value.length > 2000) buildLogs.value.splice(0, 500)
+  nextTick(() => {
+    if (buildLogBoxRef.value) buildLogBoxRef.value.scrollTop = buildLogBoxRef.value.scrollHeight
+  })
+}
+
+function onBuildStatus(task: TaskHistory) {
+  if (task.id !== buildTaskId.value) return
+  buildTask.value = task.status === 'running' ? task : null
+  if (task.status === 'success') {
+    ElMessage.success('构建完成')
+    loadBuildInfo()
+  } else if (task.status === 'failed') {
+    ElMessage.error(`构建失败（退出码 ${task.exit_code ?? '-'}）`)
+  }
+}
+
+function openArtifact(path: string) {
+  window.api.system.openPath(path).catch(() => ElMessage.error('打开失败'))
+}
+
 async function addCustomCommand() {
   const cmd = customCmd.value.trim()
   if (!cmd) {
@@ -666,7 +741,7 @@ const statusType: Record<string, string> = {
   stopped: ''
 }
 
-onMounted(() => {
+onMounted(async () => {
   load()
   loadCommits()
   loadBranches()
@@ -674,8 +749,21 @@ onMounted(() => {
   loadRunState()
   loadTasks()
   loadAutoRestart()
+  loadBuildInfo()
+  try {
+    const list = await window.api.runner.listRunning()
+    const building = list.find((t) => t.project_id === projectId && t.type === 'build')
+    if (building) {
+      buildTask.value = building
+      buildTaskId.value = building.id
+    }
+  } catch {
+    // ignore
+  }
   window.api.runner.onLog(appendRunLog)
+  window.api.runner.onLog(appendBuildLog)
   window.api.runner.onStatus(onRunStatus)
+  window.api.runner.onStatus(onBuildStatus)
 })
 </script>
 
@@ -980,6 +1068,35 @@ onMounted(() => {
           </el-card>
 
           <el-card class="block">
+            <template #header><b>打包与产物</b></template>
+            <div class="build-row">
+              <span class="cmd-text mono">{{ buildCommand || '未识别到构建命令' }}</span>
+              <el-button
+                size="small"
+                type="primary"
+                :loading="buildTask?.status === 'running'"
+                :disabled="!buildCommand"
+                @click="startBuild"
+              >
+                <el-icon><Box /></el-icon>打包
+              </el-button>
+              <el-button size="small" text @click="loadBuildInfo">刷新产物</el-button>
+            </div>
+            <div v-if="buildLogs.length" ref="buildLogBoxRef" class="terminal log-box compact">
+              <pre>{{ buildLogsText }}</pre>
+            </div>
+            <div v-if="artifacts.length" class="artifact-list">
+              <div v-for="a in artifacts" :key="a.path" class="artifact-row">
+                <el-icon><FolderOpened /></el-icon>
+                <span class="artifact-name mono">{{ a.name }}</span>
+                <span class="artifact-path mono" :title="a.path">{{ a.path }}</span>
+                <el-button size="small" text type="primary" @click="openArtifact(a.path)">打开目录</el-button>
+              </div>
+            </div>
+            <div v-else class="tip-line">暂无构建产物（先执行一次打包）</div>
+          </el-card>
+
+          <el-card class="block">
             <template #header><b>最近运行记录</b></template>
             <el-table v-if="history.length" :data="history" size="small" max-height="240">
               <el-table-column prop="type" label="类型" width="70" />
@@ -1106,6 +1223,12 @@ onMounted(() => {
 .task-title { flex: 1; color: var(--el-text-color-regular); }
 .task-title.done { color: var(--el-text-color-secondary); text-decoration: line-through; }
 .task-summary { font-size: 12px; color: var(--el-text-color-secondary); }
+.build-row { display: flex; align-items: center; gap: 10px; }
+.build-row .cmd-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.artifact-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--el-border-color-light); border-radius: 8px; }
+.artifact-name { font-size: 12.5px; font-weight: 600; color: var(--el-text-color-primary); }
+.artifact-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--el-text-color-secondary); }
 .restart-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--el-border-color-light); border-radius: 10px; background: var(--el-fill-color-lighter); }
 .restart-info b { font-size: 13px; color: var(--el-text-color-primary); }
 @media (max-width: 900px) {

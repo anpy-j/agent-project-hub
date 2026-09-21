@@ -19,7 +19,8 @@ import type {
   ServiceAnomaly,
   AgentSearchResult,
   AiConfig,
-  AiProviderOption
+  AiProviderOption,
+  ProjectArtifact
 } from '@/types'
 
 export interface ProjectHubAPI {
@@ -40,6 +41,7 @@ export interface ProjectHubAPI {
     remove: (id: string) => Promise<void>
     syncRemotes: (id: string) => Promise<Project | null>
     detect: (path: string) => Promise<DetectResult>
+    buildCommand: (id: string) => Promise<string>
     runCommands: (id: string) => Promise<RunSuggestion[]>
     customCommands: {
       get: (id: string) => Promise<string[]>
@@ -77,6 +79,8 @@ export interface ProjectHubAPI {
   runner: {
     start: (projectId: string) => Promise<string>
     startCustom: (projectId: string, cmd: { bin: string; args: string[]; display?: string }) => Promise<string>
+    startBuild: (projectId: string) => Promise<string>
+    artifacts: (projectId: string) => Promise<ProjectArtifact[]>
     probeExternal: (projectId: string) => Promise<{ running: boolean; processes: Array<{ pid: number; command: string }> }>
     stop: (taskId: string) => Promise<void>
     listRunning: () => Promise<TaskHistory[]>

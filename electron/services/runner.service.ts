@@ -4,9 +4,9 @@ import { app, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { mkdirSync, appendFileSync, existsSync, readFileSync } from 'fs'
-import type { TaskHistory, LogChunk, TaskStat } from '../../src/types'
+import type { TaskHistory, LogChunk, TaskStat, ProjectArtifact } from '../../src/types'
 import { projectRepo } from '../db/repositories'
-import { resolveRunCommand } from '../strategies/project-commands'
+import { resolveRunCommand, resolveBuildCommand, findArtifacts } from '../strategies/project-commands'
 import { getDb } from '../db'
 
 type Sender = (channel: string, payload: unknown) => void
@@ -58,6 +58,24 @@ class RunnerService {
       'run',
       sender
     )
+  }
+
+  /** 打包 / 构建：与运行走同一条任务链路（task_history.type = 'build'） */
+  async startBuild(projectId: string, sender: Sender): Promise<string> {
+    const project = projectRepo.get(projectId)
+    if (!project) throw new Error(`项目不存在: ${projectId}`)
+    const cmd = resolveBuildCommand(project)
+    return this.spawnTask(projectId, cmd, 'build', sender)
+  }
+
+  /** 实时探测构建产物目录（不落库，避免产物变化后数据过期） */
+  artifacts(projectId: string): ProjectArtifact[] {
+    const project = projectRepo.get(projectId)
+    if (!project) return []
+    return findArtifacts(project).map((dir) => ({
+      name: dir.split('/').filter(Boolean).pop() || dir,
+      path: dir
+    }))
   }
 
   private isAutoRestartEnabled(projectId: string): boolean {
@@ -333,8 +351,15 @@ class RunnerService {
   }
 
   readLog(taskId: string): string {
-    const entry = this.running.get(taskId)
-    const logPath = entry?.logPath
+    // 运行中的任务直接读内存里登记的路径；已结束的任务从 task_history 回查，
+    // 否则历史记录里的「查看日志」永远是空的。
+    const logPath =
+      this.running.get(taskId)?.logPath ??
+      (
+        getDb()
+          .prepare('SELECT log_path FROM task_history WHERE id = ?')
+          .get(taskId) as { log_path: string | null } | undefined
+      )?.log_path
     if (logPath && existsSync(logPath)) {
       return readFileSync(logPath, 'utf-8')
     }

@@ -2,7 +2,7 @@ import { ipcMain, shell, dialog, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { workspaceRepo, projectRepo, remoteRepo, taskRepo } from '../db/repositories'
 import { detectProject } from '../services/detector.service'
-import { suggestCommands } from '../strategies/project-commands'
+import { suggestCommands, resolveBuildCommand } from '../strategies/project-commands'
 import { runtimeService } from '../services/runtime.service'
 import { runnerService, getMainWindowSender } from '../services/runner.service'
 import { serviceManager } from '../services/service-manager.service'
@@ -96,6 +96,11 @@ export function registerIpcHandlers(): void {
     return { ...project, git, history }
   })
   ipcMain.handle('project:detect', (_e, path: string) => detectProject(path))
+  ipcMain.handle('project:buildCommand', (_e, id: string) => {
+    const project = projectRepo.get(id)
+    if (!project) throw new Error('项目不存在')
+    return resolveBuildCommand(project).display
+  })
   ipcMain.handle('project:add', async (_e, data: {
     workspace_id: string
     name: string
@@ -280,6 +285,12 @@ export function registerIpcHandlers(): void {
     if (!sender) throw new Error('没有可用窗口')
     return runnerService.startCustom(projectId, cmd, sender)
   })
+  ipcMain.handle('runner:startBuild', (_e, projectId: string) => {
+    const sender = getMainWindowSender()
+    if (!sender) throw new Error('没有可用窗口')
+    return runnerService.startBuild(projectId, sender)
+  })
+  ipcMain.handle('runner:artifacts', (_e, projectId: string) => runnerService.artifacts(projectId))
 
   // ---- 本机服务管理 ----
   ipcMain.handle('service:list', () => serviceManager.list())

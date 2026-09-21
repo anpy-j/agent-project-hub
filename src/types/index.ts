@@ -44,6 +44,11 @@ export interface GitSummary {
   lastCommit: { hash: string; message: string; author: string; date: string } | null
 }
 
+export interface ProjectArtifact {
+  name: string
+  path: string
+}
+
 export interface GitCommit {
   hash: string
   message: string

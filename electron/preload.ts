@@ -18,6 +18,7 @@ const api: ProjectHubAPI = {
     remove: (id: string) => invoke('project:remove', id),
     syncRemotes: (id: string) => invoke('project:syncRemotes', id),
     detect: (path: string) => invoke('project:detect', path),
+    buildCommand: (id: string) => invoke('project:buildCommand', id),
     runCommands: (id: string) => invoke('project:runCommands', id),
     tasks: {
       list: (id: string) => invoke('task:list', id),
@@ -59,6 +60,8 @@ const api: ProjectHubAPI = {
     startCustom: (projectId: string, cmd: { bin: string; args: string[]; display?: string }) =>
       invoke('runner:startCustom', projectId, cmd),
     probeExternal: (projectId: string) => ipcRenderer.invoke('runner:probeExternal', projectId),
+    startBuild: (projectId: string) => invoke('runner:startBuild', projectId),
+    artifacts: (projectId: string) => invoke('runner:artifacts', projectId),
     stop: (taskId: string) => invoke('runner:stop', taskId),
     listRunning: () => invoke('runner:listRunning'),
     stats: () => invoke('runner:stats'),
