@@ -16,6 +16,12 @@ function createWindow(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     title: 'Project Hub',
+    backgroundColor: '#0b0f1a',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    trafficLightPosition: { x: 16, y: 11 },
+    ...(process.platform !== 'darwin'
+      ? { titleBarOverlay: { color: '#0b0f1a', symbolColor: '#e6e9f2', height: 36 } }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,

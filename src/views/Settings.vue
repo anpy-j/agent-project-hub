@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { Runtime, AiConfig, AiProviderOption, AiProvider } from '../types'
+import PageHeader from '../components/PageHeader.vue'
 
 // ---- 运行时管理 ----
 const runtimes = ref<Runtime[]>([])
@@ -41,7 +42,6 @@ const modelsLoading = ref(false)
 const aiConfigured = ref(false)
 // 保存后回显的当前生效配置
 const savedSummary = ref('')
-const savedTagType = ref<'success' | 'warning'>('warning')
 
 const currentProvider = ref<AiProviderOption | null>(null)
 
@@ -145,29 +145,27 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="settings-view">
-    <div class="toolbar">
-      <h2>设置</h2>
-      <p class="head-sub">运行时、AI 服务发现等全局配置</p>
-    </div>
+  <div class="page page-scroll">
+    <PageHeader title="设置" subtitle="运行时、AI 服务发现等全局配置" />
 
-    <!-- AI 设置 -->
-    <el-card v-loading="aiLoading" class="ai-card">
-      <template #header>
-        <div class="card-head">
-          <span>
-            AI 设置（服务发现 Agent）
-            <el-tag :type="aiConfigured ? 'success' : 'info'" size="small" style="margin-left: 8px">
-              {{ savedSummary ? `已连接：${savedSummary}` : '未配置' }}
-            </el-tag>
-          </span>
-          <span class="card-head-actions">
-            <el-button size="small" :loading="modelsLoading" @click="fetchModels()">刷新模型列表</el-button>
-            <el-button size="small" :loading="aiTesting" @click="testAi">测试连接</el-button>
-            <el-button type="primary" size="small" :loading="aiSaving" @click="saveAi">保存</el-button>
-          </span>
-        </div>
-      </template>
+    <div class="settings-stack">
+      <!-- AI 设置 -->
+      <el-card v-loading="aiLoading">
+        <template #header>
+          <div class="card-head">
+            <span class="card-title">
+              AI 设置（服务发现 Agent）
+              <span class="pill" :class="{ 'is-primary': aiConfigured }">
+                {{ savedSummary ? `已连接：${savedSummary}` : '未配置' }}
+              </span>
+            </span>
+            <span class="card-head-actions">
+              <el-button size="small" :loading="modelsLoading" @click="fetchModels()">刷新模型列表</el-button>
+              <el-button size="small" :loading="aiTesting" @click="testAi">测试连接</el-button>
+              <el-button type="primary" size="small" :loading="aiSaving" @click="saveAi">保存</el-button>
+            </span>
+          </div>
+        </template>
       <el-alert
         v-if="savedSummary"
         :title="`当前生效配置：${savedSummary}`"
@@ -216,58 +214,57 @@ onMounted(() => {
           <span class="test-result">{{ aiTestResult }}</span>
         </el-form-item>
       </el-form>
-    </el-card>
+      </el-card>
 
-    <!-- 运行时管理 -->
-    <el-card style="margin-top: 16px">
-      <template #header>
-        <div class="card-head">
-          <span>运行时管理</span>
-          <el-button type="primary" size="small" :loading="scanning" @click="scan">
-            <el-icon><Refresh /></el-icon>扫描系统
-          </el-button>
-        </div>
-      </template>
-      <el-table :data="runtimes" stripe>
-        <el-table-column prop="kind" label="类型" width="120">
-          <template #default="{ row }">{{ kindLabel[row.kind] || row.kind }}</template>
-        </el-table-column>
-        <el-table-column prop="version" label="版本" width="140" />
-        <el-table-column prop="path" label="路径" />
-        <el-table-column prop="source" label="来源" width="100" />
-        <el-table-column label="默认" width="80">
-          <template #default="{ row }">
-            <el-tag v-if="row.is_default" type="success" size="small">默认</el-tag>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+      <!-- 运行时管理 -->
+      <el-card>
+        <template #header>
+          <div class="card-head">
+            <span class="card-title">运行时管理</span>
+            <el-button type="primary" size="small" :loading="scanning" @click="scan">
+              <el-icon><Refresh /></el-icon>扫描系统
+            </el-button>
+          </div>
+        </template>
+        <el-table :data="runtimes">
+          <el-table-column prop="kind" label="类型" width="120">
+            <template #default="{ row }">{{ kindLabel[row.kind] || row.kind }}</template>
+          </el-table-column>
+          <el-table-column prop="version" label="版本" width="140" />
+          <el-table-column prop="path" label="路径">
+            <template #default="{ row }"><span class="mono">{{ row.path }}</span></template>
+          </el-table-column>
+          <el-table-column prop="source" label="来源" width="100" />
+          <el-table-column label="默认" width="80">
+            <template #default="{ row }">
+              <span v-if="row.is_default" class="chip is-ok"><span class="dot" />默认</span>
+              <span v-else class="muted-dim">-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.settings-view {
-  padding: 20px 24px;
-  height: 100%;
-  overflow-y: auto;
-}
-.toolbar {
-  margin-bottom: 16px;
-}
-.toolbar h2 {
-  margin: 0;
-  font-size: 20px;
-  color: var(--el-text-color-primary);
-}
-.head-sub {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 28px;
 }
 .card-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .card-head-actions {
   display: flex;
@@ -281,8 +278,5 @@ onMounted(() => {
 .test-result {
   font-size: 13px;
   color: var(--el-color-success);
-}
-.ai-card {
-  margin-bottom: 4px;
 }
 </style>

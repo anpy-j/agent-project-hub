@@ -172,6 +172,9 @@ async function submit() {
     :model-value="visible"
     title="添加项目"
     width="560px"
+    class="ph-dialog"
+    align-center
+    :close-on-click-modal="false"
     @update:model-value="(v: boolean) => emit('update:visible', v)"
   >
     <el-form :model="form" label-width="90px">
@@ -183,22 +186,22 @@ async function submit() {
         </div>
       </el-form-item>
       <el-form-item v-if="detectResult" label="识别结果">
-        <el-tag type="success">{{ typeLabel[detectResult.type] || detectResult.type }}</el-tag>
-        <el-tag v-if="detectResult.framework" style="margin-left: 8px">
-          {{ detectResult.framework }}
-        </el-tag>
-        <el-tag v-if="detectResult.isGit" type="info" style="margin-left: 8px">
-          git 仓库 · {{ detectResult.branch || '未知分支' }}
-        </el-tag>
+        <div class="detect-chips">
+          <span class="chip is-ok">{{ typeLabel[detectResult.type] || detectResult.type }}</span>
+          <span v-if="detectResult.framework" class="type-chip">{{ detectResult.framework }}</span>
+          <span v-if="detectResult.isGit" class="type-chip">
+            git · {{ detectResult.branch || '未知分支' }}
+          </span>
+        </div>
       </el-form-item>
       <el-form-item label="Git 仓库">
         <div class="remotes-box">
           <div v-if="remotes.length === 0" class="sub-tip">
             未关联远程仓库。选择本地目录点「识别」会自动读取该仓库的 remote；也可在下方手动添加。
           </div>
-          <div v-for="(r, i) in remotes" :key="r.url + i" class="remote-item">
-            <el-tag size="small" effect="plain">{{ r.name }}<template v-if="r.is_default"> · 默认</template></el-tag>
-            <el-tag v-if="r.platform" size="small" effect="plain">{{ platformLabel[r.platform] || r.platform }}</el-tag>
+          <div v-for="(r, i) in remotes" :key="r.url + i" class="remote-item row-card">
+            <span class="type-chip">{{ r.name }}<template v-if="r.is_default"> · 默认</template></span>
+            <span v-if="r.platform" class="type-chip">{{ platformLabel[r.platform] || r.platform }}</span>
             <span class="remote-url">{{ r.url }}</span>
             <el-button size="small" text type="danger" @click="remotes.splice(i, 1)">移除</el-button>
           </div>
@@ -218,15 +221,13 @@ async function submit() {
           <div
             v-for="sub in detectResult.subProjects"
             :key="sub.path"
-            class="sub-item"
+            class="sub-item row-card"
             @click="selectSubProject(sub)"
           >
             <el-icon><FolderOpened /></el-icon>
             <span class="sub-name">{{ sub.name }}</span>
-            <el-tag size="small" effect="plain">{{ typeLabel[sub.type] || sub.type }}</el-tag>
-            <el-tag v-if="sub.framework" size="small" effect="plain" style="margin-left: 4px">
-              {{ sub.framework }}
-            </el-tag>
+            <span class="type-chip">{{ typeLabel[sub.type] || sub.type }}</span>
+            <span v-if="sub.framework" class="type-chip">{{ sub.framework }}</span>
           </div>
         </div>
       </el-form-item>
@@ -255,6 +256,18 @@ async function submit() {
 </template>
 
 <style scoped>
+:deep(.ph-dialog) {
+  border-radius: 14px;
+}
+:deep(.ph-dialog .el-dialog__header) {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+:deep(.ph-dialog .el-dialog__body) {
+  padding-top: 16px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
 .path-row {
   display: flex;
   gap: 8px;
@@ -263,6 +276,13 @@ async function submit() {
 .path-row .el-input {
   flex: 1;
 }
+.detect-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .remotes-box {
   width: 100%;
 }
@@ -271,8 +291,6 @@ async function submit() {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
   margin-bottom: 6px;
   width: 100%;
 }
@@ -302,15 +320,9 @@ async function submit() {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
   margin-bottom: 6px;
   cursor: pointer;
-  transition: all 0.15s;
-}
-.sub-item:hover {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
+  width: 100%;
 }
 .sub-name {
   flex: 1;

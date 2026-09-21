@@ -7,6 +7,8 @@ import { useProjectStore } from '../stores/project'
 import type { Project, LogChunk, RunSuggestion, TaskHistory } from '../types'
 import ConsolePanel from '../components/ConsolePanel.vue'
 import AddProjectDialog from '../components/AddProjectDialog.vue'
+import PageHeader from '../components/PageHeader.vue'
+import StatStrip from '../components/StatStrip.vue'
 import { onHotkey } from '../composables/hotkeys'
 
 const router = useRouter()
@@ -105,7 +107,14 @@ const activeCount = computed(() => filteredProjects.value.filter((p) => (p.progr
 const linkedCount = computed(() => filteredProjects.value.filter((p) => p.remotes && p.remotes.length).length)
 const runningCount = computed(() => Object.keys(runningTasks.value).length)
 
-const stats = computed(() => [
+const stats = computed<
+  Array<{
+    label: string
+    value: string
+    icon: string
+    tone: 'primary' | 'success' | 'warning' | 'info'
+  }>
+>(() => [
   { label: '项目总数', value: String(filteredProjects.value.length), icon: 'Folder', tone: 'primary' },
   { label: '开发中项目', value: String(activeCount.value), icon: 'TrendCharts', tone: 'success' },
   { label: '已关联远程', value: String(linkedCount.value), icon: 'Link', tone: 'warning' },
@@ -133,16 +142,6 @@ const typeLabel: Record<string, string> = {
   react: 'React',
   node: 'Node',
   unknown: '未知'
-}
-const typeColor: Record<string, string> = {
-  'java-maven': '#e76f00',
-  'java-gradle': '#02303a',
-  python: '#3776ab',
-  flutter: '#02569b',
-  vue: '#42b883',
-  react: '#61dafb',
-  node: '#5fa04e',
-  unknown: '#909399'
 }
 const stageLabel: Record<string, string> = {
   planning: '规划中',
@@ -286,19 +285,14 @@ onHotkey('new-project', openAdd)
 </script>
 
 <template>
-  <div class="project-list-view">
-    <!-- 页头 -->
-    <div class="page-head">
-      <div>
-        <h2>项目列表</h2>
-        <p class="head-sub">
-          共 {{ filteredProjects.length }} 个项目
-          <el-tag v-if="workspaceStore.currentId" type="info" size="small" effect="plain">
-            {{ workspaceStore.list.find((w) => w.id === workspaceStore.currentId)?.name }}
-          </el-tag>
-        </p>
-      </div>
-      <div class="head-actions">
+  <div class="page">
+    <PageHeader title="项目列表" :subtitle="`共 ${filteredProjects.length} 个项目`">
+      <template #meta>
+        <span v-if="workspaceStore.currentId" class="pill">
+          {{ workspaceStore.list.find((w) => w.id === workspaceStore.currentId)?.name }}
+        </span>
+      </template>
+      <template #actions>
         <el-input
           ref="searchInputRef"
           v-model="keyword"
@@ -309,7 +303,7 @@ onHotkey('new-project', openAdd)
           <template #prefix><el-icon><Search /></el-icon></template>
           <template #suffix>
             <el-tooltip content="快捷键 ⌘K" placement="top">
-              <span class="kbd-hint">⌘K</span>
+              <span class="kbd">⌘K</span>
             </el-tooltip>
           </template>
         </el-input>
@@ -320,21 +314,10 @@ onHotkey('new-project', openAdd)
         <el-button type="primary" @click="openAdd">
           <el-icon><Plus /></el-icon>添加项目
         </el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <!-- 指标带 -->
-    <div class="stats-strip">
-      <div v-for="s in stats" :key="s.label" class="stat-cell">
-        <div class="stat-icon" :class="'tone-' + s.tone">
-          <el-icon :size="18"><component :is="s.icon" /></el-icon>
-        </div>
-        <div class="stat-body">
-          <div class="stat-num">{{ s.value }}</div>
-          <div class="stat-label">{{ s.label }}</div>
-        </div>
-      </div>
-    </div>
+    <StatStrip :items="stats" />
 
     <!-- 工具条 -->
     <div class="filter-bar">
@@ -388,11 +371,10 @@ onHotkey('new-project', openAdd)
           <span class="group-name">{{ g.label }}</span>
           <span class="group-count">{{ g.rows.length }} 个项目</span>
         </div>
-        <el-card class="table-card" shadow="never">
+        <el-card class="table-card ph-card" shadow="never">
           <el-table
             :data="g.rows"
             style="width: 100%"
-            :header-cell-style="{ background: 'var(--el-fill-color-light)', color: 'var(--el-text-color-secondary)', fontWeight: 600 }"
             empty-text="暂无项目，点击右上角添加"
             @row-click="(row: unknown) => router.push(`/projects/${(row as Project).id}`)"
           >
@@ -402,13 +384,9 @@ onHotkey('new-project', openAdd)
                   <div class="proj-name">
                     <span class="proj-title">{{ displayName(row as Project) }}</span>
                     <span v-if="englishName(row as Project)" class="proj-en">({{ englishName(row as Project) }})</span>
-                    <el-tag size="small" :style="{ backgroundColor: typeColor[row.type], color: '#fff', border: 'none' }">
-                      {{ typeLabel[row.type] }}
-                    </el-tag>
-                    <el-tag v-if="row.framework" size="small" effect="plain">{{ row.framework }}</el-tag>
-                    <el-tag v-for="tag in (row.tags || []).slice(0, 3)" :key="tag" size="small" type="warning" effect="plain">
-                      {{ tag }}
-                    </el-tag>
+                    <span class="type-chip">{{ typeLabel[row.type] }}</span>
+                    <span v-if="row.framework" class="type-chip">{{ row.framework }}</span>
+                    <span v-for="tag in (row.tags || []).slice(0, 2)" :key="tag" class="pill">{{ tag }}</span>
                   </div>
                   <div class="proj-path">{{ row.path }}</div>
                 </div>
@@ -417,7 +395,7 @@ onHotkey('new-project', openAdd)
             <el-table-column label="远程仓库" min-width="180">
               <template #default="{ row }">
                 <div v-if="(row as Project).remotes && (row as Project).remotes!.length" class="cell-remote">
-                  <el-tag size="small" effect="plain">{{ platformLabel(row as Project) }}</el-tag>
+                  <span class="type-chip">{{ platformLabel(row as Project) }}</span>
                   <span class="remote-text" :title="(row as Project).remotes![0].url">{{ (row as Project).remotes![0].url }}</span>
                 </div>
                 <span v-else class="cell-muted">仅本地</span>
@@ -439,9 +417,9 @@ onHotkey('new-project', openAdd)
             </el-table-column>
             <el-table-column label="状态" width="110">
               <template #default="{ row }">
-                <span v-if="runningTasks[row.id]" class="state-chip is-running"><span class="dot" />运行中</span>
-                <span v-else-if="!row.remotes?.length" class="state-chip is-muted"><span class="dot" />未关联</span>
-                <span v-else class="state-chip is-ok"><span class="dot" />正常</span>
+                <span v-if="runningTasks[row.id]" class="chip is-running"><span class="dot" />运行中</span>
+                <span v-else-if="!row.remotes?.length" class="chip"><span class="dot" />未关联</span>
+                <span v-else class="chip is-ok"><span class="dot" />正常</span>
               </template>
             </el-table-column>
             <el-table-column label="最近活动" width="120">
@@ -494,9 +472,8 @@ onHotkey('new-project', openAdd)
           <el-card
             v-for="p in g.rows"
             :key="p.id"
-            class="project-card"
+            class="project-card ph-card"
             shadow="never"
-            :style="{ '--card-accent': typeColor[p.type] || '#909399' }"
             @click="router.push(`/projects/${p.id}`)"
           >
             <div class="card-head">
@@ -504,15 +481,10 @@ onHotkey('new-project', openAdd)
                 {{ displayName(p) }}
                 <span v-if="englishName(p)" class="proj-en">({{ englishName(p) }})</span>
               </div>
-              <el-tag
-                size="small"
-                :style="{ backgroundColor: typeColor[p.type], color: '#fff', border: 'none' }"
-              >
-                {{ typeLabel[p.type] }}
-              </el-tag>
+              <span class="type-chip">{{ typeLabel[p.type] }}</span>
             </div>
             <div v-if="p.tags?.length" class="card-tags">
-              <el-tag v-for="tag in p.tags.slice(0, 3)" :key="tag" size="small" type="warning" effect="plain">{{ tag }}</el-tag>
+              <span v-for="tag in p.tags.slice(0, 3)" :key="tag" class="pill">{{ tag }}</span>
             </div>
             <div class="path" :title="p.path" @click.stop="openInFinder(p)">
               <el-icon><FolderOpened /></el-icon>
@@ -584,7 +556,7 @@ onHotkey('new-project', openAdd)
           @click="startWith(c)"
         >
           <span class="mono">{{ c.cmd }}</span>
-          <el-tag v-if="c.custom" size="small" type="info">自定义</el-tag>
+          <span v-if="c.custom" class="type-chip">自定义</span>
           <el-button size="small" type="primary">启动</el-button>
         </div>
         <el-empty v-if="!runCmdList.length && !runCmdLoading" description="未识别到运行命令" :image-size="60" />
@@ -594,113 +566,11 @@ onHotkey('new-project', openAdd)
 </template>
 
 <style scoped>
-.project-list-view {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 20px 24px;
-}
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.page-head h2 {
-  margin: 0;
-  font-size: 20px;
-  color: var(--el-text-color-primary);
-}
-.head-sub {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.head-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 .search-input {
   width: 300px;
 }
-.kbd-hint {
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  padding: 0 4px;
-}
 .console-badge {
   margin-left: 6px;
-}
-.stats-strip {
-  display: flex;
-  align-items: stretch;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 12px;
-  padding: 6px 10px;
-  margin-bottom: 16px;
-  box-shadow: var(--ph-shadow-soft);
-}
-.stat-card {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  transition: background-color 0.15s ease;
-}
-.stat-card:hover {
-  background: var(--el-fill-color-light);
-}
-.stat-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.tone-primary {
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-}
-.tone-success {
-  background: var(--el-color-success-light-9);
-  color: var(--el-color-success);
-}
-.tone-warning {
-  background: var(--el-color-warning-light-9);
-  color: var(--el-color-warning);
-}
-.tone-info {
-  background: var(--el-color-info-light-9);
-  color: var(--el-color-info);
-}
-.stat-num {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
-}
-.stat-label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-.filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
 }
 .table-scroll,
 .card-scroll {
@@ -726,7 +596,6 @@ onHotkey('new-project', openAdd)
 .table-card {
   overflow: hidden;
   margin-bottom: 8px;
-  border-radius: 12px;
 }
 .table-card :deep(.el-table__row) {
   cursor: pointer;
@@ -798,44 +667,6 @@ onHotkey('new-project', openAdd)
   gap: 6px;
   justify-content: flex-end;
 }
-.state-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 999px;
-  padding: 3px 10px;
-  white-space: nowrap;
-}
-.state-chip .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.state-chip.is-ok {
-  background: var(--el-color-success-light-9);
-  color: var(--el-color-success);
-}
-.state-chip.is-ok .dot { background: var(--el-color-success); }
-.state-chip.is-running {
-  background: var(--el-color-warning-light-9);
-  color: var(--el-color-warning);
-  font-weight: 600;
-}
-.state-chip.is-running .dot {
-  background: var(--el-color-warning);
-  animation: blink 1.2s infinite;
-}
-.state-chip.is-muted {
-  background: var(--el-fill-color);
-  color: var(--el-text-color-secondary);
-}
-.state-chip.is-muted .dot { background: var(--el-text-color-placeholder); }
-@keyframes blink {
-  50% { opacity: 0.25; }
-}
 .text-muted {
   color: var(--el-text-color-secondary);
 }
@@ -887,11 +718,13 @@ onHotkey('new-project', openAdd)
   display: flex;
   flex-direction: column;
   cursor: pointer;
-  border-top: 3px solid var(--card-accent, var(--el-color-primary));
+  border-left: 3px solid color-mix(in srgb, var(--el-color-primary) 45%, var(--el-border-color-light));
   transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
 }
 .project-card:hover {
-  box-shadow: var(--ph-shadow-lift, 0 12px 40px rgba(15, 23, 42, 0.08));
+  transform: translateY(-2px);
+  border-left-color: var(--el-color-primary);
+  box-shadow: var(--ph-shadow-lift);
 }
 .card-head {
   display: flex;
@@ -923,10 +756,11 @@ onHotkey('new-project', openAdd)
 }
 .card-progress .stage-chip {
   font-size: 11px;
+  font-weight: 600;
   color: var(--el-text-color-secondary);
   background: var(--el-fill-color);
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 2px 9px;
   white-space: nowrap;
 }
 .card-foot {
@@ -994,8 +828,5 @@ onHotkey('new-project', openAdd)
   flex: 1;
   font-size: 13px;
   color: var(--el-text-color-regular);
-}
-.flex-1 {
-  flex: 1;
 }
 </style>

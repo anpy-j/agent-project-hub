@@ -9,10 +9,20 @@ const router = useRouter()
 const workspaceStore = useWorkspaceStore()
 workspaceStore.load()
 
-const navItems = [
-  { path: '/projects', label: '项目', icon: 'Folder' },
-  { path: '/services', label: '服务管理', icon: 'Odometer' },
-  { path: '/settings', label: '设置', icon: 'Setting' }
+const isMac = navigator.userAgent.includes('Mac')
+
+const navGroups = [
+  {
+    label: '工作台',
+    items: [
+      { path: '/projects', label: '项目总览', icon: 'Folder' },
+      { path: '/services', label: '本机服务', icon: 'Odometer' }
+    ]
+  },
+  {
+    label: '系统',
+    items: [{ path: '/settings', label: '全局设置', icon: 'Setting' }]
+  }
 ]
 
 function isActive(path: string): boolean {
@@ -88,64 +98,86 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
 
 <template>
   <div class="app-shell">
-    <aside class="app-side">
-      <div class="brand">
-        <span class="brand-icon"><el-icon :size="18"><Cpu /></el-icon></span>
-        <span class="brand-name">Project Hub</span>
-      </div>
-      <nav class="side-nav">
-        <div
-          v-for="item in navItems"
-          :key="item.path"
-          :class="['nav-item', { active: isActive(item.path) }]"
-          role="link"
-          :tabindex="0"
-          @click="router.push(item.path)"
-          @keydown.enter="router.push(item.path)"
-        >
-          <el-icon :size="16"><component :is="item.icon" /></el-icon>
-          <span>{{ item.label }}</span>
+    <!-- 自绘标题栏（macOS 交通灯留位） -->
+    <header class="app-titlebar" :class="{ 'is-mac': isMac }">
+      <span class="tb-title">Project Hub</span>
+      <span class="tb-sub">本地项目管家</span>
+    </header>
+
+    <div class="app-body">
+      <aside class="app-side">
+        <div class="brand">
+          <span class="brand-icon"><el-icon :size="17"><Cpu /></el-icon></span>
+          <span class="brand-text">
+            <span class="brand-name">Project Hub</span>
+            <span class="brand-sub">Developer Workspace</span>
+          </span>
         </div>
-      </nav>
-      <div class="side-foot">
-        <el-select
-          v-if="workspaceStore.list.length"
-          v-model="workspaceStore.currentId"
-          placeholder="选择工作区"
-          size="default"
-          popper-class="side-select-popper"
-          class="ws-select"
-          @change="workspaceStore.persist"
-        >
-          <template #prefix><el-icon><Collection /></el-icon></template>
-          <el-option
-            v-for="ws in workspaceStore.list"
-            :key="ws.id"
-            :label="ws.name"
-            :value="ws.id"
-          />
-        </el-select>
-        <div class="foot-row">
-          <el-tooltip content="深色 / 浅色模式" placement="top">
-            <button class="foot-btn" type="button" @click="toggleTheme">
-              <el-icon :size="16"><component :is="isDark ? 'Sunny' : 'Moon'" /></el-icon>
+
+        <nav class="side-nav">
+          <template v-for="g in navGroups" :key="g.label">
+            <div class="nav-label">{{ g.label }}</div>
+            <button
+              v-for="item in g.items"
+              :key="item.path"
+              type="button"
+              :class="['nav-item', { active: isActive(item.path) }]"
+              @click="router.push(item.path)"
+            >
+              <el-icon :size="16"><component :is="item.icon" /></el-icon>
+              <span>{{ item.label }}</span>
             </button>
-          </el-tooltip>
-          <el-tooltip content="快捷键帮助（?）" placement="top">
-            <el-button text class="foot-btn" @click="helpVisible = true">
-              <el-icon :size="16"><QuestionFilled /></el-icon>
-            </el-button>
-          </el-tooltip>
+          </template>
+        </nav>
+
+        <div class="side-foot">
+          <div class="side-card">
+            <span class="side-card-label">当前工作区</span>
+            <el-select
+              v-if="workspaceStore.list.length"
+              v-model="workspaceStore.currentId"
+              placeholder="选择工作区"
+              size="default"
+              popper-class="side-select-popper"
+              class="ws-select"
+              @change="workspaceStore.persist"
+            >
+              <template #prefix><el-icon><Collection /></el-icon></template>
+              <el-option
+                v-for="ws in workspaceStore.list"
+                :key="ws.id"
+                :label="ws.name"
+                :value="ws.id"
+              />
+            </el-select>
+            <span v-else class="side-empty">暂无工作区</span>
+          </div>
+
+          <div class="foot-row">
+            <el-tooltip content="深色 / 浅色模式" placement="top">
+              <button class="foot-btn" type="button" @click="toggleTheme">
+                <el-icon :size="15"><component :is="isDark ? 'Sunny' : 'Moon'" /></el-icon>
+                <span>{{ isDark ? '浅色' : '深色' }}</span>
+              </button>
+            </el-tooltip>
+            <el-tooltip content="快捷键帮助（?）" placement="top">
+              <button class="foot-btn" type="button" @click="helpVisible = true">
+                <el-icon :size="15"><QuestionFilled /></el-icon>
+                <span>帮助</span>
+              </button>
+            </el-tooltip>
+          </div>
         </div>
-      </div>
-    </aside>
-    <el-main class="app-main">
-      <router-view v-slot="{ Component }">
-        <transition name="page-fade" mode="out-in">
-          <component :is="Component" />
-        </transition>
-      </router-view>
-    </el-main>
+      </aside>
+
+      <el-main class="app-main">
+        <router-view v-slot="{ Component }">
+          <transition name="page-fade" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
+      </el-main>
+    </div>
 
     <el-dialog v-model="helpVisible" title="键盘快捷键" width="420">
       <div class="shortcut-list">
@@ -161,82 +193,177 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
 <style scoped>
 .app-shell {
   display: flex;
+  flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  background: var(--ph-canvas);
 }
+
+/* ---------- 自绘标题栏 ---------- */
+.app-titlebar {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--ph-ink);
+  -webkit-app-region: drag;
+  user-select: none;
+  position: relative;
+}
+.app-titlebar.is-mac {
+  padding-left: 78px;
+}
+.tb-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #cbd5e1;
+  letter-spacing: 0.01em;
+}
+.tb-sub {
+  font-size: 11px;
+  color: #5c6780;
+}
+.tb-sub::before {
+  content: '— ';
+}
+
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ---------- 侧边栏 ---------- */
 .app-side {
-  width: 216px;
+  width: var(--ph-side-w, 232px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background: var(--ph-ink);
-  padding: 18px 12px 14px;
+  padding: 14px 12px 14px;
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 10px 16px;
+  padding: 4px 8px 18px;
 }
 .brand-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--el-color-primary) 22%, transparent);
-  color: #93c5fd;
+  background: linear-gradient(140deg, var(--ph-accent), var(--ph-primary-strong));
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+}
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .brand-name {
   color: #fff;
   font-weight: 700;
-  font-size: 15px;
+  font-size: 14px;
+  line-height: 1.2;
   letter-spacing: 0.01em;
 }
-nav {
+.brand-sub {
+  color: #5c6780;
+  font-size: 10.5px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+}
+
+.side-nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+.nav-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4c5670;
+  padding: 12px 12px 6px;
 }
 .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
-  border-radius: 8px;
-  font-size: 13.5px;
-  color: #94a3b8;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--ph-side-fg);
+  background: transparent;
   cursor: pointer;
-  border-left: 3px solid transparent;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color var(--ph-dur) var(--ph-ease), color var(--ph-dur) var(--ph-ease);
   user-select: none;
 }
 .nav-item:hover {
-  color: #e2e8f0;
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--ph-side-fg-strong);
+  background: var(--ph-side-hover);
+}
+.nav-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--el-color-primary) 55%, transparent);
+  outline-offset: 1px;
 }
 .nav-item.active {
-  background: color-mix(in srgb, var(--el-color-primary) 24%, transparent);
+  background: var(--ph-side-active);
   color: #fff;
-  box-shadow: inset 3px 0 0 var(--el-color-primary);
-  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--ph-accent);
 }
+
 .side-foot {
   margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 4px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 12px;
+  border-top: 1px solid var(--ph-side-line);
+}
+.side-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--ph-side-line);
+}
+.side-card-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #4c5670;
+}
+.side-empty {
+  font-size: 12px;
+  color: #5c6780;
 }
 .ws-select {
   width: 100%;
 }
 .ws-select :deep(.el-select__wrapper) {
   background: rgba(255, 255, 255, 0.06);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
   color: #e2e8f0;
+  border-radius: 8px;
+  min-height: 30px;
 }
 .ws-select :deep(.el-select__placeholder),
 .ws-select :deep(.el-select__selected-item) {
@@ -245,19 +372,36 @@ nav {
 .ws-select :deep(.el-select__caret) {
   color: #94a3b8;
 }
+
 .foot-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
-.foot-btn,
-.foot-row .el-button {
-  color: #94a3b8;
+.foot-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #8b93a7;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--ph-dur) var(--ph-ease), color var(--ph-dur) var(--ph-ease);
 }
-.foot-row .el-button:hover {
+.foot-btn:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
 }
+
+/* ---------- 主内容区 ---------- */
 .app-main {
   flex: 1;
   min-width: 0;
@@ -265,6 +409,7 @@ nav {
   background: var(--ph-canvas);
   overflow: hidden;
 }
+
 .shortcut-list {
   display: flex;
   flex-direction: column;
@@ -276,14 +421,8 @@ nav {
   gap: 14px;
 }
 .shortcut-row .kbd {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  background: var(--el-fill-color);
-  border: 1px solid var(--el-border-color);
-  border-radius: 6px;
-  padding: 3px 8px;
-  color: var(--el-text-color-regular);
-  white-space: nowrap;
+  min-width: 96px;
+  text-align: center;
 }
 .shortcut-row .desc {
   font-size: 13px;
@@ -294,8 +433,8 @@ nav {
 <style>
 /* 侧边栏内下拉面板保持深色观感 */
 .side-select-popper.el-popper {
-  background: #1e293b;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: #1a2132;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 .side-select-popper .el-select-dropdown__item {
   color: #cbd5e1;
@@ -305,12 +444,13 @@ nav {
   color: #fff;
 }
 .side-select-popper .el-select-dropdown__item.is-selected {
-  color: #60a5fa;
+  color: #818cf8;
   font-weight: 600;
+  background: rgba(99, 102, 241, 0.16);
 }
 .side-select-popper .el-popper__arrow::before {
-  background: #1e293b;
-  border-color: rgba(255, 255, 255, 0.12) !important;
+  background: #1a2132;
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
 /* 页面切换微动效（150ms，可访问性降级见 theme.css） */

@@ -4,6 +4,8 @@ import { ElMessage, ElNotification, ElMessageBox } from 'element-plus'
 import { useServiceStore, type ServiceRow } from '../stores/service'
 import type { ServiceItem, ServiceCandidate, ServiceLogChunk, ServiceStatusInfo, ServiceAnomaly, ServiceRunStatus } from '../types'
 import ServiceLogPanel from '../components/ServiceLogPanel.vue'
+import PageHeader from '../components/PageHeader.vue'
+import StatStrip from '../components/StatStrip.vue'
 
 const serviceStore = useServiceStore()
 const logPanelRef = ref<InstanceType<typeof ServiceLogPanel> | null>(null)
@@ -20,7 +22,14 @@ const filteredRows = computed(() =>
     : serviceStore.services.filter((s) => (s.group_name || '未分组') === groupFilter.value)
 )
 
-const stats = computed(() => {
+const stats = computed<
+  Array<{
+    label: string
+    value: string
+    icon: string
+    tone: 'primary' | 'success' | 'info' | 'danger'
+  }>
+>(() => {
   const all = serviceStore.services
   return [
     { label: '服务总数', value: String(all.length), icon: 'Odometer', tone: 'primary' },
@@ -30,10 +39,10 @@ const stats = computed(() => {
   ]
 })
 
-const statusMeta: Record<ServiceRunStatus, { label: string; type: 'success' | 'info' | 'danger' | 'warning' }> = {
-  running: { label: '运行中', type: 'success' },
-  stopped: { label: '已停止', type: 'info' },
-  abnormal: { label: '异常', type: 'danger' }
+const statusMeta: Record<ServiceRunStatus, { label: string; chip: string }> = {
+  running: { label: '运行中', chip: 'is-ok' },
+  stopped: { label: '已停止', chip: '' },
+  abnormal: { label: '异常', chip: 'is-danger' }
 }
 
 const busy = ref<Record<string, boolean>>({})
@@ -190,12 +199,6 @@ const sourceLabel: Record<string, string> = {
   agent: 'AI 发现'
 }
 
-function sourceTagType(s: string): 'primary' | 'success' | 'warning' | 'info' {
-  if (s === 'agent') return 'warning'
-  if (s === 'cli') return 'success'
-  return 'info'
-}
-
 async function openImport() {
   importDialogVisible.value = true
   importLoading.value = true
@@ -283,14 +286,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="services-view">
-    <!-- 页头 -->
-    <div class="page-head">
-      <div>
-        <h2>本机服务管理</h2>
-        <p class="head-sub">统一管理手动安装的本机服务：CLI 工具、守护进程、AI 服务等</p>
-      </div>
-      <div class="head-actions">
+  <div class="page">
+    <PageHeader title="本机服务管理" subtitle="统一管理手动安装的本机服务：CLI 工具、守护进程、AI 服务等">
+      <template #actions>
         <el-button @click="refresh">
           <el-icon><Refresh /></el-icon>刷新状态
         </el-button>
@@ -300,21 +298,10 @@ onUnmounted(() => {
         <el-button type="primary" @click="openAdd">
           <el-icon><Plus /></el-icon>添加服务
         </el-button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
-    <!-- 指标带 -->
-    <div class="stats-strip">
-      <div v-for="s in stats" :key="s.label" class="stat-card">
-        <div class="stat-icon" :class="'tone-' + s.tone">
-          <el-icon :size="18"><component :is="s.icon" /></el-icon>
-        </div>
-        <div class="stat-body">
-          <div class="stat-num">{{ s.value }}</div>
-          <div class="stat-label">{{ s.label }}</div>
-        </div>
-      </div>
-    </div>
+    <StatStrip :items="stats" />
 
     <!-- 分组过滤 -->
     <div class="filter-bar">
@@ -325,11 +312,10 @@ onUnmounted(() => {
     </div>
 
     <!-- 服务表格 -->
-    <el-card class="table-card" shadow="never">
+    <el-card class="table-card ph-card" shadow="never">
       <el-table
         :data="filteredRows"
         style="width: 100%"
-        :header-cell-style="{ background: 'var(--el-fill-color-light)', color: 'var(--el-text-color-secondary)', fontWeight: 600 }"
         empty-text="暂无服务，点击右上角添加或导入"
       >
         <el-table-column label="服务" min-width="260">
@@ -337,9 +323,9 @@ onUnmounted(() => {
             <div class="cell-service">
               <div class="svc-name">
                 <span class="svc-title">{{ row.name }}</span>
-                <el-tag size="small" effect="plain" type="info">
+                <span class="type-chip">
                   {{ row.source === 'manual' ? '手动' : row.source === 'launchd' ? 'launchd' : '任务计划' }}
-                </el-tag>
+                </span>
               </div>
               <div class="svc-command" :title="row.command">{{ row.command }}</div>
             </div>
@@ -347,9 +333,9 @@ onUnmounted(() => {
         </el-table-column>
         <el-table-column label="分组" width="110">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.group_name ? 'primary' : 'info'" effect="plain">
+            <span class="pill" :class="{ 'is-primary': !!row.group_name }">
               {{ row.group_name || '未分组' }}
-            </el-tag>
+            </span>
           </template>
         </el-table-column>
         <el-table-column label="端口" width="80">
@@ -366,9 +352,9 @@ onUnmounted(() => {
         <el-table-column label="状态" width="170">
           <template #default="{ row }">
             <div class="cell-status">
-              <el-tag :type="statusMeta[(row as ServiceRow).status.status].type" size="small" effect="dark">
-                {{ statusMeta[(row as ServiceRow).status.status].label }}
-              </el-tag>
+              <span class="chip" :class="statusMeta[(row as ServiceRow).status.status].chip">
+                <span class="dot" />{{ statusMeta[(row as ServiceRow).status.status].label }}
+              </span>
               <span class="status-detail" :title="(row as ServiceRow).status.detail">{{ (row as ServiceRow).status.detail }}</span>
             </div>
           </template>
@@ -514,7 +500,7 @@ onUnmounted(() => {
         <el-table-column label="名称" min-width="160">
           <template #default="{ row }">
             <span class="mono">{{ (row as ServiceCandidate).name }}</span>
-            <el-tag v-if="(row as ServiceCandidate).alreadyImported" size="small" type="info" style="margin-left: 6px">已导入</el-tag>
+            <span v-if="(row as ServiceCandidate).alreadyImported" class="pill" style="margin-left: 6px">已导入</span>
           </template>
         </el-table-column>
         <el-table-column label="命令" min-width="220">
@@ -524,9 +510,9 @@ onUnmounted(() => {
         </el-table-column>
         <el-table-column label="来源" width="90">
           <template #default="{ row }">
-            <el-tag size="small" effect="plain" :type="sourceTagType((row as ServiceCandidate).source)">
+            <span class="type-chip">
               {{ sourceLabel[(row as ServiceCandidate).source] || (row as ServiceCandidate).source }}
-            </el-tag>
+            </span>
           </template>
         </el-table-column>
         <el-table-column label="说明" min-width="140" show-overflow-tooltip>
@@ -542,102 +528,9 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.services-view {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 20px 24px;
-}
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.page-head h2 {
-  margin: 0;
-  font-size: 20px;
-  color: var(--el-text-color-primary);
-}
-.head-sub {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-}
-.head-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.stats-strip {
-  display: flex;
-  align-items: stretch;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 12px;
-  padding: 6px 10px;
-  margin-bottom: 16px;
-  box-shadow: var(--ph-shadow-soft);
-}
-.stat-card {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  transition: background-color 0.15s ease;
-}
-.stat-card:hover {
-  background: var(--el-fill-color-light);
-}
-.stat-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.tone-primary {
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-}
-.tone-success {
-  background: var(--el-color-success-light-9);
-  color: var(--el-color-success);
-}
-.tone-info {
-  background: var(--el-color-info-light-9);
-  color: var(--el-color-info);
-}
-.tone-danger {
-  background: var(--el-color-danger-light-9);
-  color: var(--el-color-danger);
-}
-.stat-num {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
-}
-.stat-label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-.filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
 .table-card {
   flex: 1;
   overflow: hidden;
-  border-radius: 12px;
 }
 .cell-service {
   display: flex;

@@ -220,16 +220,14 @@ defineExpose({ attach, show, append, onStatus })
           <div
             v-for="t in tasks"
             :key="t.taskId"
-            :class="['tab-item', { active: t.taskId === activeTaskId }]"
+            :class="['tab-item', { active: t.taskId === activeTaskId, running: t.status === 'running' }]"
             @click="onTabClick(t.taskId)"
           >
             <span class="dot" :style="{ background: statusColor[t.status] }" />
             <div class="tab-info">
               <div class="tab-name">
                 {{ t.projectName }}
-                <el-tag v-if="t.restarts > 0" size="small" type="warning" effect="plain">
-                  重启 ×{{ t.restarts }}
-                </el-tag>
+                <span v-if="t.restarts > 0" class="pill is-warn">重启 ×{{ t.restarts }}</span>
               </div>
               <div class="tab-cmd">{{ t.command || '—' }}</div>
             </div>
@@ -256,7 +254,7 @@ defineExpose({ attach, show, append, onStatus })
           :key="t.taskId"
           class="console-pane"
         >
-          <div class="pane-head">
+          <div :class="['pane-head', { running: t.status === 'running' }]">
             <span class="dot" :style="{ background: statusColor[t.status] }" />
             <b>{{ t.projectName }}</b>
             <span class="pane-status">{{ statusLabel[t.status] }}</span>
@@ -264,11 +262,11 @@ defineExpose({ attach, show, append, onStatus })
           </div>
           <div
             :ref="(el) => { if (el) paneRefs.set(t.taskId, el as HTMLElement) }"
-            class="pane-log"
+            class="pane-log terminal"
             @scroll="(e: Event) => onPaneScroll(t, e)"
           >
-            <div v-for="(line, i) in t.lines" :key="i" :class="['log-line', line.stream]">{{ line.text }}</div>
-            <div v-if="!t.lines.length" class="pane-empty">暂无日志输出</div>
+            <div v-for="(line, i) in t.lines" :key="i" :class="line.stream">{{ line.text }}</div>
+            <div v-if="!t.lines.length" class="terminal-empty">暂无日志输出</div>
           </div>
         </div>
         <div v-if="!paneTasks.length" class="console-placeholder">
@@ -315,8 +313,13 @@ defineExpose({ attach, show, append, onStatus })
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
+  transition: border-color var(--ph-dur) var(--ph-ease),
+    background-color var(--ph-dur) var(--ph-ease);
+}
+.tab-item:hover {
+  border-color: var(--el-color-primary-light-5);
 }
 .tab-item.active {
   border-color: var(--el-color-primary);
@@ -394,7 +397,8 @@ defineExpose({ attach, show, append, onStatus })
   background: var(--el-color-info);
   flex-shrink: 0;
 }
-.tab-item .dot {
+.tab-item.running .dot,
+.pane-head.running .dot {
   animation: blink 1.2s infinite;
 }
 @keyframes blink {
@@ -402,25 +406,16 @@ defineExpose({ attach, show, append, onStatus })
 }
 .pane-log {
   flex: 1;
-  overflow-y: auto;
-  background: #1e1e1e;
-  color: #d4d4d4;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.5;
+  border: none;
+  border-radius: 0;
   padding: 10px 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
 }
-.log-line.stderr {
-  color: #f56c6c;
-}
-.pane-empty,
 .console-placeholder {
-  color: #666;
+  color: var(--el-text-color-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100%;
+  width: 100%;
 }
 </style>

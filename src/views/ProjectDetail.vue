@@ -647,16 +647,6 @@ const typeLabel: Record<string, string> = {
   node: 'Node',
   unknown: '未知'
 }
-const typeColor: Record<string, string> = {
-  'java-maven': '#e76f00',
-  'java-gradle': '#02303a',
-  python: '#3776ab',
-  flutter: '#02569b',
-  vue: '#42b883',
-  react: '#61dafb',
-  node: '#5fa04e',
-  unknown: '#909399'
-}
 const stageLabel: Record<string, string> = {
   planning: '规划中',
   developing: '开发中',
@@ -669,11 +659,11 @@ const platformLabel: Record<string, string> = {
   gitlab: 'GitLab',
   other: 'Git'
 }
-const statusType: Record<string, 'success' | 'info' | 'warning' | 'danger'> = {
-  running: 'warning',
-  success: 'success',
-  failed: 'danger',
-  stopped: 'info'
+const statusType: Record<string, string> = {
+  running: 'is-running',
+  success: 'is-ok',
+  failed: 'is-danger',
+  stopped: ''
 }
 
 onMounted(() => {
@@ -690,12 +680,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-loading="loading" class="detail-view">
-    <div class="toolbar">
-      <el-button text @click="router.push('/projects')">
-        <el-icon><ArrowLeft /></el-icon>返回项目列表
-      </el-button>
-      <span class="toolbar-crumb">项目详情</span>
+  <div v-loading="loading" class="page page-scroll">
+    <div class="crumb-bar">
+      <button class="crumb-back" type="button" @click="router.push('/projects')">
+        <el-icon :size="14"><ArrowLeft /></el-icon><span>项目列表</span>
+      </button>
+      <el-icon class="crumb-sep" :size="12"><ArrowRight /></el-icon>
+      <span class="crumb-current">{{ project ? displayNameOf(project) : '项目详情' }}</span>
     </div>
 
     <template v-if="project">
@@ -709,52 +700,57 @@ onMounted(() => {
               {{ displayNameOf(project) }}<span v-if="englishNameOf(project)" class="name-en">({{ englishNameOf(project) }})</span><el-icon class="edit-icon"><Edit /></el-icon>
             </h2>
           </template>
-          <el-tag
-            size="small"
-            :style="{ backgroundColor: typeColor[project.type] || '#909399', color: '#fff', border: 'none' }"
-          >{{ typeLabel[project.type] || project.type }}</el-tag>
-          <el-tag v-if="project.framework" size="small" effect="plain">{{ project.framework }}</el-tag>
-          <el-tag v-for="tag in (project.tags || []).slice(0, 3)" :key="tag" size="small" type="warning" effect="plain">{{ tag }}</el-tag>
-          <span v-if="runTask?.status === 'running'" class="run-badge"><span class="dot" />运行中</span>
-          <span v-else-if="external.running" class="run-badge ext"><span class="dot" />外部进程</span>
+          <span class="type-chip">{{ typeLabel[project.type] || project.type }}</span>
+          <span v-if="project.framework" class="type-chip">{{ project.framework }}</span>
+          <span v-for="tag in (project.tags || []).slice(0, 3)" :key="tag" class="pill">{{ tag }}</span>
+          <span v-if="runTask?.status === 'running'" class="chip is-running"><span class="dot" />运行中</span>
+          <span v-else-if="external.running" class="chip is-info"><span class="dot" />外部进程</span>
+          <span class="head-spacer" />
+          <el-button size="small" @click="openFolder()"><el-icon><FolderOpened /></el-icon>目录</el-button>
+          <el-button size="small" @click="recognize" :loading="busy === 'sync'"><el-icon><Search /></el-icon>识别</el-button>
         </div>
         <div class="meta-line">
           <span class="path mono" :title="project.path" @click="openFolder()">{{ project.path }}</span>
           <template v-if="git?.isGit">
             <span class="sep">·</span>
             <span class="mono">⑂ {{ git.branch }}</span>
-            <el-tag v-if="git.ahead > 0" type="danger" size="small">↑ {{ git.ahead }}</el-tag>
-            <el-tag v-if="git.behind > 0" type="warning" size="small">↓ {{ git.behind }}</el-tag>
+            <span v-if="git.ahead > 0" class="chip is-danger"><span class="dot" />↑ {{ git.ahead }}</span>
+            <span v-if="git.behind > 0" class="chip is-running"><span class="dot" />↓ {{ git.behind }}</span>
             <span v-if="git.lastCommit" class="mono dim">{{ git.lastCommit.hash }} {{ git.lastCommit.message }}</span>
           </template>
-          <el-tag v-else size="small" type="info">未检测到 git 仓库</el-tag>
+          <span v-else class="type-chip">未检测到 git 仓库</span>
         </div>
-        <div class="name-row">
-          <el-input
-            v-model="displayNameInput"
-            size="small"
-            style="width: 220px"
-            placeholder="中文名称（列表默认显示）"
-            clearable
-            @keyup.enter="saveDisplayName"
-          >
-            <template #prefix><el-icon><EditPen /></el-icon></template>
-          </el-input>
-          <el-button size="small" type="primary" plain :loading="savingName" @click="saveDisplayName">保存名称</el-button>
-        </div>
-        <div class="desc-row">
-          <el-input
-            v-model="editForm.description"
-            size="small"
-            style="flex: 1"
-            placeholder="项目描述，一句话说明这个项目做什么"
-            @keyup.enter="saveBasic"
-          >
-            <template #prefix><el-icon><EditPen /></el-icon></template>
-          </el-input>
-          <el-button size="small" type="primary" plain :loading="savingBasic" @click="saveBasic">保存描述</el-button>
-          <el-button size="small" @click="openFolder()"><el-icon><FolderOpened /></el-icon>目录</el-button>
-          <el-button size="small" @click="recognize" :loading="busy === 'sync'"><el-icon><Search /></el-icon>识别</el-button>
+
+        <div class="edit-grid">
+          <label class="field">
+            <span class="field-label">显示名称</span>
+            <span class="field-row">
+              <el-input
+                v-model="displayNameInput"
+                size="small"
+                placeholder="中文名称（列表默认显示）"
+                clearable
+                @keyup.enter="saveDisplayName"
+              >
+                <template #prefix><el-icon><EditPen /></el-icon></template>
+              </el-input>
+              <el-button size="small" type="primary" plain :loading="savingName" @click="saveDisplayName">保存</el-button>
+            </span>
+          </label>
+          <label class="field">
+            <span class="field-label">项目描述</span>
+            <span class="field-row">
+              <el-input
+                v-model="editForm.description"
+                size="small"
+                placeholder="一句话说明这个项目做什么"
+                @keyup.enter="saveBasic"
+              >
+                <template #prefix><el-icon><EditPen /></el-icon></template>
+              </el-input>
+              <el-button size="small" type="primary" plain :loading="savingBasic" @click="saveBasic">保存</el-button>
+            </span>
+          </label>
         </div>
       </el-card>
 
@@ -816,9 +812,9 @@ onMounted(() => {
                   <div v-for="t in [...g.active, ...g.done]" :key="t.id" class="task-row">
                     <el-checkbox :model-value="!!t.done" @change="toggleTask(t)" />
                     <span class="task-title" :class="{ done: t.done }">{{ t.title }}</span>
-                    <el-tag size="small" effect="plain" :type="t.tag === 'bug' ? 'danger' : t.tag === 'feature' ? 'primary' : 'info'">
+                    <span class="pill" :class="{ 'is-danger': t.tag === 'bug', 'is-primary': t.tag === 'feature' }">
                       {{ t.tag }}
-                    </el-tag>
+                    </span>
                     <span class="task-ops">
                       <el-button size="small" text :disabled="!!t.done" @click="moveTask(t, -1)">
                         <el-icon><ArrowUp /></el-icon>
@@ -845,7 +841,7 @@ onMounted(() => {
                 <div v-if="git.changes.length" class="changes-list">
                   <label v-for="f in git.changes" :key="f.path" class="change-row">
                     <el-checkbox :model-value="selectedChanges.has(f.path)" @change="toggleChange(f.path)" />
-                    <el-tag size="small" effect="plain">{{ f.status }}</el-tag>
+                    <span class="type-chip">{{ f.status }}</span>
                     <span class="remote-url" :title="f.path">{{ f.path }}</span>
                   </label>
                 </div>
@@ -877,9 +873,9 @@ onMounted(() => {
                 <div class="sub-title">远程仓库</div>
                 <el-empty v-if="!project.remotes?.length" description="未关联远程仓库" :image-size="50" />
                 <div v-for="r in project.remotes" :key="r.id" class="remote-row">
-                  <el-tag size="small" effect="dark">{{ r.name }}</el-tag>
-                  <el-tag v-if="r.is_default" size="small" type="success">默认</el-tag>
-                  <el-tag size="small" effect="plain">{{ platformLabel[r.platform] || r.platform }}</el-tag>
+                  <span class="mono remote-name">{{ r.name }}</span>
+                  <span v-if="r.is_default" class="chip is-ok"><span class="dot" />默认</span>
+                  <span class="type-chip">{{ platformLabel[r.platform] || r.platform }}</span>
                   <span class="remote-url" :title="r.url">{{ r.url }}</span>
                   <el-button size="small" text type="primary" @click="openRepo(r.url)">网页</el-button>
                 </div>
@@ -909,8 +905,8 @@ onMounted(() => {
             <template v-if="project.remotes?.length">
               <div class="tip-line" style="padding: 6px 0">已登记的仓库关联（本地 git 初始化后自动生效）：</div>
               <div v-for="r in project.remotes" :key="r.id" class="remote-row">
-                <el-tag size="small" effect="dark">{{ r.name }}</el-tag>
-                <el-tag size="small" effect="plain">{{ platformLabel[r.platform] || r.platform }}</el-tag>
+                <span class="mono remote-name">{{ r.name }}</span>
+                <span class="type-chip">{{ platformLabel[r.platform] || r.platform }}</span>
                 <span class="remote-url" :title="r.url">{{ r.url }}</span>
                 <el-button size="small" text type="primary" @click="openRepo(r.url)">打开网页</el-button>
               </div>
@@ -959,7 +955,7 @@ onMounted(() => {
             <div class="cmd-list">
               <div v-for="c in runCommands" :key="c.cmd" class="cmd-row">
                 <span class="cmd-text mono">{{ c.cmd }}</span>
-                <el-tag v-if="c.custom" size="small" type="info" effect="plain">自定义</el-tag>
+                <span v-if="c.custom" class="type-chip">自定义</span>
                 <el-button v-if="c.custom" size="small" text type="danger" @click="removeCustomCommand(c.cmd)">移除</el-button>
                 <el-button size="small" type="primary" :disabled="runTask?.status === 'running'" @click="runCommand(c)">
                   <el-icon><VideoPlay /></el-icon>运行
@@ -978,7 +974,7 @@ onMounted(() => {
               </div>
               <el-switch :model-value="autoRestart" @change="toggleAutoRestart" />
             </div>
-            <div v-if="runLogs.length" ref="logBoxRef" class="log-box compact">
+            <div v-if="runLogs.length" ref="logBoxRef" class="terminal log-box compact">
               <pre>{{ runLogsText }}</pre>
             </div>
           </el-card>
@@ -989,7 +985,7 @@ onMounted(() => {
               <el-table-column prop="type" label="类型" width="70" />
               <el-table-column label="状态" width="90">
                 <template #default="{ row }">
-                  <el-tag :type="statusType[row.status] || 'info'" size="small">{{ row.status }}</el-tag>
+                  <span class="chip" :class="statusType[row.status] || ''"><span class="dot" />{{ row.status }}</span>
                 </template>
               </el-table-column>
               <el-table-column prop="command" label="命令" show-overflow-tooltip />
@@ -1040,27 +1036,33 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.detail-view { height: 100%; overflow-y: auto; padding: 20px 24px; }
-.toolbar { margin-bottom: 12px; display: flex; align-items: center; gap: 4px; }
-.toolbar-crumb { font-size: 13px; color: var(--el-text-color-secondary); }
-.head-card { margin-bottom: 16px; border-radius: 12px; }
+.crumb-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; font-size: 13px; }
+.crumb-back { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border: none; border-radius: 7px; background: transparent; color: var(--el-text-color-secondary); font-family: inherit; font-size: 13px; cursor: pointer; transition: background-color var(--ph-dur) var(--ph-ease), color var(--ph-dur) var(--ph-ease); }
+.crumb-back:hover { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.crumb-sep { color: var(--el-text-color-placeholder); }
+.crumb-current { color: var(--el-text-color-primary); font-weight: 600; }
+.head-card { margin-bottom: 16px; border-radius: var(--ph-radius-md); }
 .head-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.name { margin: 0; display: inline-flex; align-items: center; gap: 4px; cursor: text; font-size: 20px; color: var(--el-text-color-primary); }
+.head-spacer { flex: 1; }
+.name { margin: 0; display: inline-flex; align-items: center; gap: 4px; cursor: text; font-size: 21px; font-weight: 700; letter-spacing: -0.022em; line-height: 1.25; color: var(--el-text-color-primary); }
 .name-en { font-size: 13px; font-weight: 400; color: var(--el-text-color-secondary); }
-.name-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .edit-icon { font-size: 12px; color: var(--el-text-color-secondary); margin-left: 6px; }
 .meta-line { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--el-text-color-secondary); flex-wrap: wrap; }
 .sep { color: var(--el-border-color); }
 .path { cursor: pointer; color: var(--el-text-color-secondary); }
 .path:hover { color: var(--el-color-primary); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.edit-grid { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 12px; margin-top: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field-label { font-size: 12px; font-weight: 600; color: var(--el-text-color-secondary); }
+.field-row { display: flex; gap: 8px; align-items: center; }
+.field-row .el-input { flex: 1; }
 .hash { color: var(--el-color-primary); font-weight: 600; font-size: 12px; background: var(--el-fill-color); border-radius: 4px; padding: 1px 6px; flex-shrink: 0; }
 .commit-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; }
 .commit-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--el-border-color-lighter); font-size: 13px; }
 .commit-row:last-child { border-bottom: none; }
 .commit-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--el-text-color-regular); }
 .dim { color: var(--el-text-color-secondary); }
-.desc-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 .col { display: flex; flex-direction: column; gap: 16px; }
 .block { margin-bottom: 16px; }
@@ -1086,14 +1088,10 @@ onMounted(() => {
 .cmd-text { flex: 1; font-size: 12px; color: var(--el-text-color-regular); }
 .custom-add { display: flex; gap: 8px; margin-top: 10px; }
 .run-state { display: inline-flex; align-items: center; gap: 6px; color: var(--el-color-warning); font-size: 12px; }
-.run-state .dot, .run-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--el-color-warning); animation: blink 1.2s infinite; }
+.run-state .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--el-color-warning); animation: blink 1.2s infinite; }
 @keyframes blink { 50% { opacity: 0.2; } }
-.run-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; background: var(--el-color-warning-light-9); color: var(--el-color-warning); font-size: 12px; font-weight: 600; }
-.run-badge .dot { background: var(--el-color-warning); animation: blink 1.2s infinite; }
-.run-badge.ext { color: var(--el-color-info); }
-.run-badge.ext .dot { background: var(--el-color-info); }
-.log-box { background: var(--ph-ink, #0f172a); color: #86efac; border-radius: 10px; padding: 12px; max-height: 140px; overflow-y: auto; margin-top: 10px; }
-.log-box pre { margin: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
+.log-box { max-height: 140px; margin-top: 10px; }
+.log-box pre { margin: 0; font-family: inherit; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
 .time { font-size: 12px; color: var(--el-text-color-secondary); }
 .task-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .task-groups { margin-top: 4px; }
@@ -1110,4 +1108,8 @@ onMounted(() => {
 .task-summary { font-size: 12px; color: var(--el-text-color-secondary); }
 .restart-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--el-border-color-light); border-radius: 10px; background: var(--el-fill-color-lighter); }
 .restart-info b { font-size: 13px; color: var(--el-text-color-primary); }
+@media (max-width: 900px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .edit-grid { grid-template-columns: minmax(0, 1fr); }
+}
 </style>

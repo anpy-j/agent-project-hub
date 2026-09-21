@@ -57,14 +57,16 @@ defineExpose({ attach, show, append, loadHistory })
     <div class="log-toolbar">
       <el-button size="small" @click="loadHistory">加载历史日志</el-button>
       <el-button size="small" @click="logs = []">清空显示</el-button>
+      <el-button size="small" text type="danger" @click="clearHistory">删除日志文件</el-button>
+      <span class="log-count muted">{{ logs.length }} 行</span>
     </div>
-    <div ref="logBodyRef" class="log-body">
+    <div ref="logBodyRef" class="log-body terminal">
       <div
         v-for="(line, i) in logs"
         :key="i"
-        :class="['log-line', line.stream]"
+        :class="line.stream"
       >{{ line.text }}</div>
-      <div v-if="!logs.length" class="empty">暂无日志输出</div>
+      <div v-if="!logs.length" class="terminal-empty">暂无日志输出</div>
     </div>
   </el-drawer>
 </template>
@@ -74,26 +76,13 @@ defineExpose({ attach, show, append, loadHistory })
   margin-bottom: 8px;
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+.log-count {
+  margin-left: auto;
+  font-size: 12px;
 }
 .log-body {
-  background: #1e1e1e;
-  color: #d4d4d4;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 12px;
-  border-radius: 6px;
-  height: calc(100% - 50px);
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.log-line.stderr {
-  color: #f56c6c;
-}
-.empty {
-  color: #666;
-  text-align: center;
-  margin-top: 40px;
+  height: calc(100% - 44px);
 }
 </style>
