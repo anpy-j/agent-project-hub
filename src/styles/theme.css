@@ -75,11 +75,36 @@
 }
 
 html.dark {
+  /* 侧边栏同源的 slate 色板（不再是 EP 默认灰黑） */
   --ph-canvas: #0b1220;
-  --ph-ink: #0b1220;
-  --ph-ink-2: #111a2c;
+  --ph-ink: #0f172a;
+  --ph-ink-2: #16213a;
+  --ph-panel: #16213a;
   --ph-muted: #94a3b8;
-  --ph-line: #1e293b;
+  --ph-line: #24314a;
+
+  /* Element Plus 基底 → slate 体系 */
+  --el-bg-color: #16213a;
+  --el-bg-color-overlay: #1c2942;
+  --el-bg-color-page: #0b1220;
+  --el-fill-color-blank: #16213a;
+  --el-fill-color: #1e2c47;
+  --el-fill-color-light: #1b2840;
+  --el-fill-color-lighter: #172336;
+  --el-fill-color-dark: #223049;
+  --el-fill-color-darker: #141e30;
+  --el-border-color: #2b3a55;
+  --el-border-color-light: #253349;
+  --el-border-color-lighter: #202d43;
+  --el-border-color-extra-light: #1c283d;
+  --el-text-color-primary: #e2e8f0;
+  --el-text-color-regular: #cbd5e1;
+  --el-text-color-secondary: #94a3b8;
+  --el-text-color-placeholder: #64748b;
+  --el-text-color-disabled: #475569;
+  --el-mask-color: rgba(2, 6, 23, 0.65);
+  --el-box-shadow: var(--ph-shadow-soft);
+  --el-box-shadow-light: var(--ph-shadow-soft);
 
   --el-color-primary-light-3: color-mix(in srgb, #2563eb 60%, #141414);
   --el-color-primary-light-5: color-mix(in srgb, #2563eb 40%, #141414);
@@ -113,6 +138,22 @@ html.dark {
   --el-color-info-light-9: color-mix(in srgb, #64748b 12%, #141414);
 
   --el-bg-color-page: #0b1220;
+}
+
+html.dark {
+  --el-card-bg-color: #16213a;
+}
+html.dark .el-card {
+  border-color: #24314a;
+}
+html.dark .el-table {
+  --el-table-header-bg-color: #1b2840;
+  --el-table-tr-bg-color: #16213a;
+  --el-table-bg-color: #16213a;
+  --el-table-border-color: #24314a;
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
 }
 
 html,
@@ -206,8 +247,11 @@ body {
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 1280px) {
-  .stats-row {
-    grid-template-columns: repeat(2, 1fr) !important;
+  .stats-strip {
+    flex-wrap: wrap;
+  }
+  .stat-card {
+    flex: 1 1 40%;
   }
 }
 @media (max-width: 960px) {

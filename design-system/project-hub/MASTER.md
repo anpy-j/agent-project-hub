@@ -27,6 +27,12 @@
 
 语义一律通过 `--el-color-*` token 消费；`--el-fill-color-blank` → canvas。
 
+### 双主题
+- **默认深色**（与侧边栏同一 slate 色系）：页面 #0B1220，面板 #16213A，hover 面 #1B2840，
+  边框 #2B3A55，文字 #E2E8F0 / #CBD5E1 / #94A3B8
+- 浅色：canvas #F8FAFC，卡片 #FFFFFF，边框 #E2E8F0
+- 侧边栏恒为 ink #0F172A；两种模式下侧边栏与页面共享同一主色与状态色
+
 ## 4. 字体
 - UI：-apple-system / PingFang SC 栈，正文 13–14px，行高 1.5，页头标题 20–22px/700
 - 代码/路径/命令：ui-monospace（SF Mono / Menlo）

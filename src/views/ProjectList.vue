@@ -323,11 +323,11 @@ onHotkey('new-project', openAdd)
       </div>
     </div>
 
-    <!-- 指标行 -->
-    <div class="stats-row">
-      <div v-for="s in stats" :key="s.label" class="stat-card">
+    <!-- 指标带 -->
+    <div class="stats-strip">
+      <div v-for="s in stats" :key="s.label" class="stat-cell">
         <div class="stat-icon" :class="'tone-' + s.tone">
-          <el-icon :size="20"><component :is="s.icon" /></el-icon>
+          <el-icon :size="18"><component :is="s.icon" /></el-icon>
         </div>
         <div class="stat-body">
           <div class="stat-num">{{ s.value }}</div>
@@ -637,30 +637,32 @@ onHotkey('new-project', openAdd)
 .console-badge {
   margin-left: 6px;
 }
-.stats-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 16px;
-}
-.stat-card {
+.stats-strip {
+  display: flex;
+  align-items: stretch;
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
   border-radius: 12px;
-  padding: 18px 20px;
+  padding: 6px 10px;
+  margin-bottom: 16px;
+  box-shadow: var(--ph-shadow-soft);
+}
+.stat-card {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 14px;
-  box-shadow: var(--ph-shadow-soft);
-  transition: box-shadow 0.18s ease, transform 0.18s ease;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  transition: background-color 0.15s ease;
 }
 .stat-card:hover {
-  box-shadow: var(--ph-shadow-lift, 0 12px 40px rgba(15, 23, 42, 0.08));
+  background: var(--el-fill-color-light);
 }
 .stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -683,7 +685,7 @@ onHotkey('new-project', openAdd)
   color: var(--el-color-info);
 }
 .stat-num {
-  font-size: 26px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--el-text-color-primary);
   line-height: 1.2;

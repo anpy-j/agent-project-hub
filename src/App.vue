@@ -20,9 +20,9 @@ function isActive(path: string): boolean {
   return route.path === path
 }
 
-/* ---------- 深色模式 ---------- */
+/* ---------- 深色模式（默认深色，与侧边栏同色系） ---------- */
 const THEME_KEY = 'project-hub.theme'
-const isDark = ref(localStorage.getItem(THEME_KEY) === 'dark')
+const isDark = ref(localStorage.getItem(THEME_KEY) !== 'light')
 
 function applyTheme(dark: boolean): void {
   isDark.value = dark
