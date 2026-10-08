@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { getDb, closeDb } from './db'
@@ -7,6 +7,8 @@ import { runnerService } from './services/runner.service'
 import { runtimeService } from './services/runtime.service'
 import { serviceManager } from './services/service-manager.service'
 import { runStartupMaintenance } from './services/maintenance.service'
+import { registerDeploymentIpc } from './ipc/deployment'
+import { hasActiveReleases } from './services/deployment.service'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -35,6 +37,13 @@ function createWindow(): BrowserWindow {
     mainWindow.show()
   })
 
+  mainWindow.on('close', (event) => {
+    if (hasActiveReleases()) {
+      event.preventDefault()
+      dialog.showMessageBoxSync(mainWindow, { type: 'info', message: '镜像发布正在执行，请等待完成后再关闭窗口。' })
+    }
+  })
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
@@ -59,6 +68,7 @@ app.whenReady().then(() => {
   getDb()
   runStartupMaintenance()
   registerIpcHandlers()
+  registerDeploymentIpc()
   runtimeService.scan()
   serviceManager.autostart()
 
@@ -69,7 +79,12 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  if (hasActiveReleases()) {
+    event.preventDefault()
+    dialog.showMessageBoxSync({ type: 'info', message: '镜像发布正在执行，请等待完成后再退出。' })
+    return
+  }
   runnerService.cleanupAll()
   serviceManager.cleanupAll()
   closeDb()

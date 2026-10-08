@@ -1,5 +1,6 @@
 import { spawn, execFile } from 'child_process'
 import type { ChildProcess } from 'child_process'
+import { stopProcessTree, stopProcessTreeSync } from './process-tree'
 import { app } from 'electron'
 import { homedir, tmpdir } from 'os'
 import { randomUUID } from 'crypto'
@@ -13,6 +14,7 @@ import { notify } from './notify.service'
 
 interface RunningService {
   process: ChildProcess
+  stopPromise?: Promise<void>
   runId: string
   service: ServiceItem
   logPath: string
@@ -67,9 +69,9 @@ class ServiceManagerService {
     return serviceRepo.update(id, data)
   }
 
-  remove(id: string): void {
+  async remove(id: string): Promise<void> {
     if (this.running.has(id)) {
-      this.stop(id)
+      await this.stop(id)
     }
     serviceRepo.remove(id)
   }
@@ -117,14 +119,18 @@ class ServiceManagerService {
       emit('stderr', `[进程错误] ${err.message}\n`)
     })
 
-    child.on('exit', (code, signal) => {
+    child.on('close', async (code, signal) => {
       const entry = this.running.get(serviceId)
+      let stopFailed = false
+      if (entry?.stopPromise) {
+        try { await entry.stopPromise } catch { stopFailed = true }
+      }
       this.running.delete(serviceId)
       const userStopped = this.stopping.has(serviceId)
       this.stopping.delete(serviceId)
 
       const status: ServiceStatusInfo['status'] =
-        userStopped || signal === 'SIGTERM' || signal === 'SIGKILL' || code === 0 ? 'stopped' : 'abnormal'
+        stopFailed ? 'abnormal' : userStopped || signal === 'SIGTERM' || signal === 'SIGKILL' || code === 0 ? 'stopped' : 'abnormal'
       serviceRepo.update(serviceId, { last_status: status })
       this.send('service:status', {
         serviceId,
@@ -159,28 +165,15 @@ class ServiceManagerService {
   async stop(serviceId: string): Promise<void> {
     const entry = this.running.get(serviceId)
     if (!entry) return
+    if (entry.stopPromise) return entry.stopPromise
     this.stopping.add(serviceId)
-    const pid = entry.process.pid
-    const killGroup = (signal: NodeJS.Signals): void => {
-      try {
-        if (process.platform !== 'win32' && pid) {
-          process.kill(-pid, signal) // 负 PID = 杀整个进程组（shell + 子进程）
-        } else {
-          entry.process.kill(signal)
-        }
-      } catch {
-        try {
-          entry.process.kill(signal)
-        } catch {
-          // ignore
-        }
-      }
+    entry.stopPromise = stopProcessTree(entry.process)
+    try { await entry.stopPromise }
+    catch (error) {
+      this.stopping.delete(serviceId)
+      entry.stopPromise = undefined
+      throw error
     }
-    killGroup('SIGTERM')
-    // 3 秒后仍在运行则强杀
-    setTimeout(() => {
-      if (this.running.has(serviceId)) killGroup('SIGKILL')
-    }, 3000)
   }
 
   async restart(serviceId: string): Promise<string> {
@@ -271,15 +264,9 @@ class ServiceManagerService {
 
   cleanupAll(): void {
     for (const [id, entry] of this.running) {
-      try {
-        if (process.platform !== 'win32' && entry.process.pid) {
-          process.kill(-entry.process.pid, 'SIGKILL')
-        } else {
-          entry.process.kill('SIGKILL')
-        }
-      } catch {
-        // ignore
-      }
+      this.stopping.add(id)
+      try { stopProcessTreeSync(entry.process) }
+      catch (error) { console.error('[ProjectHub] 退出时清理失败', error) }
       this.running.delete(id)
     }
   }

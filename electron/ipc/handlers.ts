@@ -8,10 +8,11 @@ import { runnerService, getMainWindowSender } from '../services/runner.service'
 import { serviceManager } from '../services/service-manager.service'
 
 import { gitSummary, readRemotes, detectPlatformOf, gitLog, gitInit, gitSetRemote, gitCommitAll, gitCommitFiles, gitPushUpstream, gitPullSafe, gitPushSimple, gitBranches, gitCheckout } from '../services/git.service'
-import type { Project, ProjectRemote, ServiceCandidate, AiConfig } from '../../src/types'
+import type { Project, ProjectRemote, ServiceCandidate, AiConfig, CleanExecutionTarget } from '../../src/types'
 import { aiService } from '../services/ai.service'
 import { getDb } from '../db'
 import { logUsage, runMaintenanceNow } from '../services/maintenance.service'
+import { diskCleanerService } from '../services/disk-cleaner.service'
 
 const STAGE_RANK: Record<string, number> = { planning: 0, developing: 1, testing: 2, released: 3 }
 
@@ -344,4 +345,10 @@ export function registerIpcHandlers(): void {
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
   })
+
+  // ---- disk cleaner (AI 磁盘管家) ----
+  ipcMain.handle('diskCleaner:getDrives', () => diskCleanerService.getDrives())
+  ipcMain.handle('diskCleaner:analyze', () => diskCleanerService.analyzeDisk())
+  ipcMain.handle('diskCleaner:clean', (_e, targets: CleanExecutionTarget[]) => diskCleanerService.executeClean(targets))
 }
+

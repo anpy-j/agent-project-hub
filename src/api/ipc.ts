@@ -22,10 +22,17 @@ import type {
   AiProviderOption,
   ProjectArtifact,
   LogUsage,
-  MaintenanceResult
+  MaintenanceResult,
+  DiskDriveInfo,
+  DiskAnalysisResult,
+  CleanExecutionTarget,
+  CleanExecutionResult
 } from '@/types'
 
+import type { DeploymentAPI } from '../types/deployment'
+
 export interface ProjectHubAPI {
+  deployment: DeploymentAPI
   project: {
     list: (workspaceId?: string) => Promise<Project[]>
     get: (id: string) => Promise<Project | null>
@@ -135,4 +142,10 @@ export interface ProjectHubAPI {
     openExternal: (url: string) => Promise<void>
     pickDirectory: () => Promise<string | null>
   }
+  diskCleaner: {
+    getDrives: () => Promise<DiskDriveInfo[]>
+    analyze: () => Promise<DiskAnalysisResult>
+    clean: (targets: CleanExecutionTarget[]) => Promise<CleanExecutionResult>
+  }
 }
+

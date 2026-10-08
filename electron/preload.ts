@@ -3,12 +3,36 @@ import type { ProjectHubAPI } from '../src/api/ipc'
 import type { LogChunk, TaskHistory, ServiceLogChunk, ServiceStatusInfo, ServiceAnomaly, AiConfig } from '../src/types'
 
 function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
-  const plainArgs = args.map((a) => JSON.parse(JSON.stringify(a)))
+  const plainArgs = args.map((a) => a === undefined ? undefined : JSON.parse(JSON.stringify(a)))
   return ipcRenderer.invoke(channel, ...plainArgs) as Promise<T>
 }
 
 
 const api: ProjectHubAPI = {
+  deployment: {
+    registries: () => invoke('deployment:registries'),
+    saveRegistry: (input) => invoke('deployment:saveRegistry', input),
+    removeRegistry: (id) => invoke('deployment:removeRegistry', id),
+    testRegistry: (id) => invoke('deployment:testRegistry', id),
+    hosts: () => invoke('deployment:hosts'),
+    saveHost: (input) => invoke('deployment:saveHost', input),
+    removeHost: (id) => invoke('deployment:removeHost', id),
+    importBridgebox: () => invoke('deployment:importBridgebox'),
+    pickPrivateKey: () => invoke('deployment:pickPrivateKey'),
+    fingerprint: (host, port) => invoke('deployment:fingerprint', host, port),
+    testHost: (id) => invoke('deployment:testHost', id),
+    snapshot: (id) => invoke('deployment:snapshot', id),
+    remoteAction: (id, action) => invoke('deployment:remoteAction', id, action),
+    config: (id) => invoke('deployment:config', id),
+    saveConfig: (config) => invoke('deployment:saveConfig', config),
+    start: (id, action) => invoke('deployment:start', id, action),
+    jobs: () => invoke('deployment:jobs'),
+    onJob: (callback) => {
+      const handler = (_e: unknown, job: import('../src/types/deployment').ReleaseJob) => callback(job)
+      ipcRenderer.on('deployment:job', handler)
+      return () => ipcRenderer.removeListener('deployment:job', handler)
+    }
+  },
   project: {
     list: (workspaceId?: string) => invoke('project:list', workspaceId),
     get: (id: string) => invoke('project:get', id),
@@ -124,8 +148,14 @@ const api: ProjectHubAPI = {
     openPath: (path: string) => invoke('system:openPath', path),
     openExternal: (url: string) => invoke('system:openExternal', url),
     pickDirectory: () => invoke('system:pickDirectory') as Promise<string | null>
+  },
+  diskCleaner: {
+    getDrives: () => invoke('diskCleaner:getDrives'),
+    analyze: () => invoke('diskCleaner:analyze'),
+    clean: (targets) => invoke('diskCleaner:clean', targets)
   }
 }
+
 
 if (process.contextIsolated) {
   contextBridge.exposeInMainWorld('api', api)

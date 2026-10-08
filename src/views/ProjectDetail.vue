@@ -794,6 +794,7 @@ onMounted(async () => {
           <span v-if="runTask?.status === 'running'" class="chip is-running"><span class="dot" />运行中</span>
           <span v-else-if="external.running" class="chip is-info"><span class="dot" />外部进程</span>
           <span class="head-spacer" />
+          <el-button size="small" type="primary" plain @click="router.push({ path: '/delivery', query: { project: projectId } })"><el-icon><UploadFilled /></el-icon>镜像发布</el-button>
           <el-button size="small" @click="openFolder()"><el-icon><FolderOpened /></el-icon>目录</el-button>
           <el-button size="small" @click="recognize" :loading="busy === 'sync'"><el-icon><Search /></el-icon>识别</el-button>
         </div>

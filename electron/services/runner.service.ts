@@ -1,5 +1,6 @@
 import { spawn, execFile } from 'child_process'
 import type { ChildProcess } from 'child_process'
+import { stopProcessTree, stopProcessTreeSync } from './process-tree'
 import { app, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { join } from 'path'
@@ -22,6 +23,7 @@ interface SpawnCommand {
 
 interface RunningTask {
   process: ChildProcess
+  stopPromise?: Promise<void>
   task: TaskHistory
   logPath: string
   cmd: SpawnCommand
@@ -96,6 +98,9 @@ class RunnerService {
     type: TaskHistory['type'],
     sender: Sender
   ): Promise<string> {
+    if (type === 'run' && [...this.running.values()].some(e => e.task.project_id === projectId && e.task.type === 'run')) {
+      throw new Error('该项目仍在运行或停止中，请等待退出后再启动')
+    }
     const taskId = randomUUID()
     const logPath = this.ensureLogPath(taskId)
 
@@ -162,9 +167,15 @@ class RunnerService {
     child.stdout?.on('data', (d: Buffer) => emit('stdout', d.toString()))
     child.stderr?.on('data', (d: Buffer) => emit('stderr', d.toString()))
 
-    child.on('exit', (code, signal) => {
+    child.on('close', async (code, signal) => {
+      let stopFailed = false
+      if (entry.stopPromise) {
+        try { await entry.stopPromise } catch { stopFailed = true }
+      }
       let status: TaskHistory['status'] = 'failed'
-      if (code === 0) status = 'success'
+      if (stopFailed) status = 'failed'
+      else if (entry.userStopped) status = 'stopped'
+      else if (code === 0) status = 'success'
       else if (signal === 'SIGTERM' || signal === 'SIGKILL') status = 'stopped'
       const finalTask: TaskHistory = {
         ...entry.task,
@@ -214,9 +225,12 @@ class RunnerService {
     child.on('error', (err) => {
       emit('stderr', `[进程错误] ${err.message}\n`)
     })
-  }  async stop(taskId: string): Promise<void> {
+  }
+
+  async stop(taskId: string): Promise<void> {
     const entry = this.running.get(taskId)
     if (!entry) return
+    if (entry.stopPromise) return entry.stopPromise
     entry.userStopped = true
     if (entry.restartTimer) {
       clearTimeout(entry.restartTimer)
@@ -224,27 +238,13 @@ class RunnerService {
       this.running.delete(taskId)
       return
     }
-    const pid = entry.process?.pid
-    const killGroup = (signal: NodeJS.Signals): void => {
-      try {
-        if (process.platform !== 'win32' && pid) {
-          process.kill(-pid, signal) // 负 PID = 杀整个进程组（shell + 子进程）
-        } else {
-          entry.process.kill(signal)
-        }
-      } catch {
-        try {
-          entry.process.kill(signal)
-        } catch {
-          // ignore
-        }
-      }
+    entry.stopPromise = stopProcessTree(entry.process)
+    try { await entry.stopPromise }
+    catch (error) {
+      this.emitLocal(entry, 'stderr', '[停止失败] ' + (error as Error).message + '\n')
+      entry.stopPromise = undefined
+      throw error
     }
-    killGroup('SIGTERM')
-    // 3 秒后仍在运行则强杀
-    setTimeout(() => {
-      if (this.running.has(taskId)) killGroup('SIGKILL')
-    }, 3000)
   }
 
   probeExternal(projectPath: string): Promise<{ running: boolean; processes: Array<{ pid: number; command: string }> }> {
@@ -382,16 +382,10 @@ class RunnerService {
 
   cleanupAll(): void {
     for (const [id, entry] of this.running) {
+      entry.userStopped = true
       if (entry.restartTimer) clearTimeout(entry.restartTimer)
-      try {
-        if (process.platform !== 'win32' && entry.process?.pid) {
-          process.kill(-entry.process.pid, 'SIGKILL')
-        } else {
-          entry.process?.kill('SIGKILL')
-        }
-      } catch {
-        // ignore
-      }
+      try { stopProcessTreeSync(entry.process) }
+      catch (error) { console.error('[ProjectHub] 退出时清理失败', error) }
       this.running.delete(id)
     }
   }

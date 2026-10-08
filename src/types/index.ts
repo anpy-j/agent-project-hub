@@ -256,3 +256,67 @@ export interface ServiceAnomaly {
   exitCode: number | null
   message: string
 }
+
+// ---- AI 磁盘管家与系统清理 ----
+export interface DiskDriveInfo {
+  drive: string
+  label?: string
+  totalBytes: number
+  usedBytes: number
+  freeBytes: number
+  usedPercent: number
+  freeGb: number
+  totalGb: number
+}
+
+export interface CleanItem {
+  id: string
+  name: string
+  path: string
+  sizeBytes: number
+  sizeDisplay: string
+  reason: string
+  safetyNotice?: string
+  defaultChecked: boolean
+  category: 'cache' | 'log' | 'installer' | 'dev_build' | 'media_temp' | 'media_old' | 'ai_model' | 'other'
+}
+
+export interface CleanTier {
+  level: 1 | 2 | 3
+  title: string
+  description: string
+  badge: 'safe' | 'warning' | 'archive'
+  items: CleanItem[]
+}
+
+export interface OptimizationSuggestion {
+  title: string
+  description: string
+  actionHint?: string
+}
+
+export interface DiskAnalysisResult {
+  summary: string
+  analyzedAt: string
+  usedAi: boolean
+  aiModel?: string
+  drives: DiskDriveInfo[]
+  tiers: CleanTier[]
+  optimizations: OptimizationSuggestion[]
+}
+
+export interface CleanExecutionTarget {
+  id: string
+  path: string
+  action: 'delete' | 'trash'
+}
+
+export interface CleanExecutionResult {
+  freedBytes: number
+  freedDisplay: string
+  successCount: number
+  failedCount: number
+  errors: Array<{ path: string; error: string }>
+  afterDrives: DiskDriveInfo[]
+}
+

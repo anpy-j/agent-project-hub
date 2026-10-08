@@ -12,11 +12,14 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "rebuild": "electron-rebuild -f -w better-sqlite3"
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "test:delivery": "node --import tsx --test tests/deployment.test.ts",
+    "test:delivery-ui": "npm run build && node tests/run-electron-delivery-smoke.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
-    "electron-log": "^5.1.7"
+    "electron-log": "^5.1.7",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",
@@ -24,14 +27,16 @@
     "@element-plus/icons-vue": "^2.3.1",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.5.0",
+    "@types/ssh2": "^1.15.6",
     "@vitejs/plugin-vue": "^5.1.2",
     "@vue/tsconfig": "^0.5.1",
-    "element-plus": "^2.8.0",
     "electron": "^31.3.1",
     "electron-builder": "^24.13.3",
     "electron-rebuild": "^3.2.9",
     "electron-vite": "^2.3.0",
+    "element-plus": "^2.8.0",
     "pinia": "^2.2.2",
+    "tsx": "^4.23.15",
     "typescript": "^5.5.4",
     "unplugin-auto-import": "^0.18.2",
     "unplugin-vue-components": "^0.27.4",

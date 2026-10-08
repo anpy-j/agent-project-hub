@@ -16,7 +16,9 @@ const navGroups = [
     label: '工作台',
     items: [
       { path: '/projects', label: '项目总览', icon: 'Folder' },
-      { path: '/services', label: '本机服务', icon: 'Odometer' }
+      { path: '/services', label: '本机服务', icon: 'Odometer' },
+      { path: '/delivery', label: '镜像与服务器', icon: 'UploadFilled' },
+      { path: '/disk-cleaner', label: 'AI 磁盘管家', icon: 'Brush' }
     ]
   },
   {

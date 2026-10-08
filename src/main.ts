@@ -11,6 +11,8 @@ import ProjectList from './views/ProjectList.vue'
 import ProjectDetail from './views/ProjectDetail.vue'
 import Settings from './views/Settings.vue'
 import Services from './views/Services.vue'
+import DiskCleaner from './views/DiskCleaner.vue'
+import Delivery from './views/Delivery.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -19,6 +21,8 @@ const router = createRouter({
     { path: '/projects', name: 'projects', component: ProjectList },
     { path: '/projects/:id', name: 'project-detail', component: ProjectDetail },
     { path: '/services', name: 'services', component: Services },
+    { path: '/delivery', name: 'delivery', component: Delivery },
+    { path: '/disk-cleaner', name: 'disk-cleaner', component: DiskCleaner },
     { path: '/settings', name: 'settings', component: Settings }
   ]
 })
