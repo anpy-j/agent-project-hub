@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { Runtime, AiConfig, AiProviderOption, AiProvider, LogUsage, MaintenanceResult } from '../types'
 import PageHeader from '../components/PageHeader.vue'
 import GitAuthSettings from '../components/GitAuthSettings.vue'
 
+const route = useRoute()
 const activeSection = ref('git')
 const sections = [
   { id: 'git', title: '仓库认证', description: 'SSH 密钥与连接测试', icon: 'Key' },
@@ -12,6 +14,9 @@ const sections = [
   { id: 'runtime', title: '运行环境', description: '本机开发工具与版本', icon: 'Cpu' },
   { id: 'maintenance', title: '数据与日志', description: '存储用量与历史清理', icon: 'Document' }
 ]
+watch(() => route.query.section, section => {
+  activeSection.value = sections.some(item => item.id === section) ? section as string : 'git'
+}, { immediate: true })
 
 // ---- 运行时管理 ----
 const runtimes = ref<Runtime[]>([])
@@ -229,6 +234,7 @@ onMounted(() => {
         style="margin-bottom: 14px"
       />
       <el-form label-width="100px" label-position="right">
+        <p class="form-tip">本项目所有内置 AI 功能统一使用此处保存的服务与模型配置。</p>
         <el-form-item label="厂商">
           <el-select v-model="aiForm.provider" style="width: 280px">
             <el-option v-for="p in providers" :key="p.value" :label="p.label" :value="p.value" />

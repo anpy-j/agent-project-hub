@@ -9,6 +9,28 @@ function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
 
 
 const api: ProjectHubAPI = {
+  skills: {
+    snapshot: () => invoke('skills:snapshot'),
+    preview: input => invoke('skills:preview', input),
+    scan: projectId => invoke('skills:scan', projectId),
+    import: (token, ids) => invoke('skills:import', token, ids),
+    discard: token => invoke('skills:discard', token),
+    readFile: (id, path) => invoke('skills:readFile', id, path),
+    install: input => invoke('skills:install', input),
+    setEnabled: (id, enabled) => invoke('skills:setEnabled', id, enabled),
+    uninstall: id => invoke('skills:uninstall', id),
+    remove: id => invoke('skills:remove', id),
+    history: id => invoke('skills:history', id),
+    explain: id => invoke('skills:explain', id),
+    checkUpdate: id => invoke('skills:checkUpdate', id),
+    applyUpdate: (id, token, candidateId) => invoke('skills:applyUpdate', id, token, candidateId),
+    restore: id => invoke('skills:restore', id),
+    export: id => invoke('skills:export', id),
+    bundle: (id, replace) => invoke('skills:bundle', id, replace),
+    pickLocal: kind => invoke('skills:pickLocal', kind),
+    context: (projectId, ids) => invoke('skills:context', projectId, ids),
+    chat: input => invoke('skills:chat', input)
+  },
   deployment: {
     registries: () => invoke('deployment:registries'),
     saveRegistry: (input) => invoke('deployment:saveRegistry', input),
@@ -45,6 +67,7 @@ const api: ProjectHubAPI = {
     detect: (path: string) => invoke('project:detect', path),
     buildCommand: (id: string) => invoke('project:buildCommand', id),
     runCommands: (id: string) => invoke('project:runCommands', id),
+    removeRunCommand: (id: string, cmd: string) => invoke('project:runCommands:remove', id, cmd),
     tasks: {
       list: (id: string) => invoke('task:list', id),
       add: (id: string, title: string, tag: string, group?: string | null) =>

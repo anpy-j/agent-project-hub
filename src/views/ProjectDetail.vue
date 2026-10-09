@@ -170,6 +170,8 @@ async function load() {
     }
     project.value = detail
     git.value = detail.git
+    const changedPaths = new Set(detail.git.changes.map((change) => change.path))
+    selectedChanges.value = new Set([...selectedChanges.value].filter((path) => changedPaths.has(path)))
     history.value = detail.history || []
     progress.value = {
       percent: detail.progress_percent || 0,
@@ -191,6 +193,10 @@ async function loadCommits() {
   } catch {
     commits.value = []
   }
+}
+
+async function refreshGit() {
+  await Promise.all([load(), loadCommits()])
 }
 
 async function loadTasks() {
@@ -249,13 +255,15 @@ function toggleChange(path: string) {
   selectedChanges.value = set
 }
 
-async function doCommit(alsoPush = false) {
+async function doCommit(alsoPush = false, selectedOnly = false) {
+  if (busy.value) return
   const message = commitMessage.value.trim()
   if (!message) {
     ElMessage.warning('请填写提交说明')
     return
   }
-  const paths = selectedChanges.value.size ? [...selectedChanges.value] : undefined
+  if (selectedOnly && !selectedChanges.value.size) return
+  const paths = selectedOnly ? [...selectedChanges.value] : undefined
   busy.value = alsoPush ? 'commit-push' : 'commit'
   try {
     const msg = await window.api.git.commit(projectId, message, paths)
@@ -266,11 +274,11 @@ async function doCommit(alsoPush = false) {
       const pushMsg = await window.api.git.push(projectId, false)
       ElMessage.success(pushMsg)
     }
-    await load()
-    await loadCommits()
   } catch (e) {
     ElMessage.error(`提交失败: ${(e as Error).message}`)
   } finally {
+    // 提交可能已经成功，即使后续推送失败也必须重新读取工作区。
+    await refreshGit()
     busy.value = ''
   }
 }
@@ -279,11 +287,10 @@ async function doPull() {
   busy.value = 'pull'
   try {
     ElMessage.success(await window.api.git.pull(projectId))
-    load()
-    loadCommits()
   } catch (e) {
     ElMessage.error(`拉取失败: ${(e as Error).message}`)
   } finally {
+    await refreshGit()
     busy.value = ''
   }
 }
@@ -292,10 +299,10 @@ async function doPush() {
   busy.value = 'push'
   try {
     ElMessage.success(await window.api.git.push(projectId, false))
-    load()
   } catch (e) {
     ElMessage.error(`推送失败: ${(e as Error).message}`)
   } finally {
+    await refreshGit()
     busy.value = ''
   }
 }
@@ -522,7 +529,7 @@ async function addCustomCommand() {
   }
   try {
     const cur = runCommands.value.filter((c) => c.custom).map((c) => c.cmd)
-    if (cur.includes(cmd)) {
+    if (runCommands.value.some((c) => c.cmd === cmd)) {
       ElMessage.warning('该命令已存在')
       return
     }
@@ -535,10 +542,9 @@ async function addCustomCommand() {
   }
 }
 
-async function removeCustomCommand(cmd: string) {
+async function removeRunCommand(cmd: string) {
   try {
-    const cur = runCommands.value.filter((c) => c.custom && c.cmd !== cmd).map((c) => c.cmd)
-    await window.api.project.customCommands.save(projectId, cur)
+    await window.api.project.removeRunCommand(projectId, cmd)
     runCommands.value = await window.api.project.runCommands(projectId)
     ElMessage.success('已移除')
   } catch (e) {
@@ -797,6 +803,7 @@ onMounted(async () => {
           <span v-else-if="external.running" class="chip is-info"><span class="dot" />外部进程</span>
           <span class="head-spacer" />
           <el-button size="small" type="primary" plain @click="router.push({ path: '/delivery', query: { project: projectId } })"><el-icon><UploadFilled /></el-icon>镜像发布</el-button>
+          <el-button size="small" plain @click="router.push({ path: '/ai/assistant', query: { projectId } })"><el-icon><MagicStick /></el-icon>AI 技能助手</el-button>
           <el-button size="small" @click="openFolder()"><el-icon><FolderOpened /></el-icon>目录</el-button>
           <el-button size="small" @click="recognize" :loading="busy === 'sync'"><el-icon><Search /></el-icon>识别</el-button>
         </div>
@@ -941,16 +948,22 @@ onMounted(async () => {
                 <div class="btn-row" style="margin-top: 10px">
                   <el-button
                     size="small" type="primary" :loading="busy === 'commit'"
-                    :disabled="!commitMessage.trim() || (!selectedChanges.size && !git.changes.length)"
+                    :disabled="!!busy || !commitMessage.trim() || !git.changes.length"
                     @click="doCommit(false)"
-                  >提交{{ selectedChanges.size ? `所选 ${selectedChanges.size} 个` : '全部' }}</el-button>
+                  >提交全部</el-button>
+                  <el-button
+                    v-if="selectedChanges.size"
+                    size="small"
+                    :disabled="!!busy || !commitMessage.trim()"
+                    @click="doCommit(false, true)"
+                  >提交所选 {{ selectedChanges.size }} 个</el-button>
                   <el-button
                     size="small" type="success" :loading="busy === 'commit-push'"
-                    :disabled="!commitMessage.trim() || (!selectedChanges.size && !git.changes.length)"
+                    :disabled="!!busy || !commitMessage.trim() || !git.changes.length"
                     @click="commitAndPush"
-                  >提交并推送</el-button>
-                  <el-button size="small" :loading="busy === 'pull'" @click="doPull">拉取</el-button>
-                  <el-button size="small" :loading="busy === 'push'" @click="doPush">推送</el-button>
+                  >提交全部并推送</el-button>
+                  <el-button size="small" :disabled="!!busy" :loading="busy === 'pull'" @click="doPull">拉取</el-button>
+                  <el-button size="small" :disabled="!!busy" :loading="busy === 'push'" @click="doPush">推送</el-button>
                 </div>
               </el-tab-pane>
               <el-tab-pane label="远程与分支">
@@ -1047,7 +1060,7 @@ onMounted(async () => {
               <div v-for="c in runCommands" :key="c.cmd" class="cmd-row">
                 <span class="cmd-text mono">{{ c.cmd }}</span>
                 <span v-if="c.custom" class="type-chip">自定义</span>
-                <el-button v-if="c.custom" size="small" text type="danger" @click="removeCustomCommand(c.cmd)">移除</el-button>
+                <el-button size="small" text type="danger" @click="removeRunCommand(c.cmd)">删除</el-button>
                 <el-button size="small" type="primary" :disabled="runTask?.status === 'running'" @click="runCommand(c)">
                   <el-icon><VideoPlay /></el-icon>运行
                 </el-button>

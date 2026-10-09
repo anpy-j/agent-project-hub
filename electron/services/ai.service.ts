@@ -60,7 +60,7 @@ function headers(cfg: AiConfig): Record<string, string> {
 // OpenCode 走本机 CLI（复用 opencode 已配置的模型与鉴权），无需常驻服务。
 // --pure 跳过项目插件/MCP，避免对话被无关插件拖慢。
 // 注意：bun 运行时在 node 管道子进程场景下可能挂起，因此输出重定向到临时文件再读取
-function execOpencode(args: string[]): Promise<string> {
+function execOpencode(args: string[], readOnly = false): Promise<string> {
   const run = (bin: string): Promise<string> =>
     new Promise((resolve, reject) => {
       const outPath = join(tmpdir(), `ph-opencode-${randomUUID()}.log`)
@@ -71,7 +71,15 @@ function execOpencode(args: string[]): Promise<string> {
         reject(new Error(`无法创建 opencode 输出文件：${(e as Error).message}`))
         return
       }
-      const child = spawn(bin, args, { stdio: ['ignore', out, out] })
+      const child = spawn(bin, args, {
+        stdio: ['ignore', out, out],
+        env: readOnly ? {
+          ...process.env,
+          OPENCODE_CONFIG_CONTENT: JSON.stringify({
+            agent: { 'project-hub-skills': { description: '仅解释用户提供的技能文本', mode: 'primary', permission: { '*': 'deny' } } }
+          })
+        } : process.env
+      })
       const timer = setTimeout(() => child.kill('SIGKILL'), 120000)
       child.on('error', (err) => {
         clearTimeout(timer)
@@ -197,11 +205,11 @@ export class AiService {
     return reply.slice(0, 100)
   }
 
-  private async chatViaOpencode(messages: ChatMsg[], model: string): Promise<string> {
+  private async chatViaOpencode(messages: ChatMsg[], model: string, readOnly = false): Promise<string> {
     const prompt = messages
       .map((m) => (m.role === 'system' ? `[系统要求]\n${m.content}` : m.content))
       .join('\n\n')
-    const raw = await execOpencode(['run', '--pure', '-m', model, prompt])    // 去掉 CLI 输出中的 ANSI 颜色与装饰行，保留正文
+    const raw = await execOpencode(['run', '--pure', '-m', model, ...(readOnly ? ['--agent', 'project-hub-skills'] : []), prompt], readOnly)    // 去掉 CLI 输出中的 ANSI 颜色与装饰行，保留正文
     const text = raw
       .replace(/\x1b\[[0-9;]*m/g, '')
       .split('\n')
@@ -212,12 +220,12 @@ export class AiService {
     return text
   }
 
-  async chat(messages: ChatMsg[], cfg?: AiConfig): Promise<string> {
+  async chat(messages: ChatMsg[], cfg?: AiConfig, readOnly = false): Promise<string> {
     const c = cfg ?? aiConfigRepo.get()
     if (!c.model) throw new Error('未配置 AI（请在设置中选择厂商并填写模型）')
     if (c.provider === 'opencode') {
       try {
-        return await this.chatViaOpencode(messages, c.model)
+        return await this.chatViaOpencode(messages, c.model, readOnly)
       } catch (e) {
         throw new Error(`AI 请求失败：${(e as Error).message}`)
       }

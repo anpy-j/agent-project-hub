@@ -8,24 +8,31 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "package:win": "npm run build && electron-builder --win --publish never",
     "preview": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "test:delivery": "node --import tsx --test tests/deployment.test.ts",
-    "test:delivery-ui": "npm run build && node tests/run-electron-delivery-smoke.cjs"
+    "test:delivery-ui": "npm run build && node tests/run-electron-delivery-smoke.cjs",
+    "test:skills": "node --import tsx --test tests/skills.test.ts",
+    "test:skills-ui": "npm run build && node tests/run-electron-skills-smoke.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
     "electron-log": "^5.1.7",
-    "ssh2": "^1.17.0"
+    "fflate": "^0.8.3",
+    "markdown-it": "^14.3.2",
+    "ssh2": "^1.17.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
     "@element-plus/icons-vue": "^2.3.1",
     "@types/better-sqlite3": "^7.6.11",
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^22.5.0",
     "@types/ssh2": "^1.15.6",
     "@vitejs/plugin-vue": "^5.1.2",

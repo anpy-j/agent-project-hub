@@ -159,7 +159,7 @@ services:
             <div class="section-heading"><h3>发布配置</h3><el-button text @click="helpDialog = true">服务器准备说明</el-button></div>
             <el-form label-position="top" :disabled="!!busy || running">
               <el-form-item label="本地项目"><el-select v-model="projectId" filterable class="full"><el-option v-for="p in projects" :key="p.id" :value="p.id" :label="p.display_name || p.name" /></el-select></el-form-item>
-              <p v-if="!projects.length" class="muted">先在项目总览添加本地项目。</p>
+              <p v-if="!projects.length" class="muted">先在项目管理的项目模块中添加本地项目。</p>
               <el-form-item label="镜像仓库"><el-select v-model="config.registryId" class="full" placeholder="先在仓库账号页添加"><el-option v-for="r in registries" :key="r.id" :value="r.id" :label="`${r.name} · ${r.server}`" /></el-select></el-form-item>
               <div class="two-columns"><el-form-item label="命名空间/仓库"><el-input v-model="config.repository" placeholder="personal/myapp" /></el-form-item><el-form-item label="镜像版本"><el-input v-model="config.tag"><template #append><el-button @click="config.tag = releaseTag()">新版本</el-button></template></el-input></el-form-item></div>
               <div class="two-columns"><el-form-item label="Dockerfile（项目内相对路径）"><el-input v-model="config.dockerfile" /></el-form-item><el-form-item label="服务器架构"><el-select v-model="config.platform" class="full"><el-option label="x86 / amd64" value="linux/amd64" /><el-option label="ARM64" value="linux/arm64" /></el-select></el-form-item></div>

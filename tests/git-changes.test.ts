@@ -40,5 +40,17 @@ test('selected modified file commits and pushes with its complete path', async (
     assert.equal((await gitSummary(local)).changes[0].path, renamed)
     await gitCommitFiles(local, [renamed], 'rename page')
     assert.equal(run(['-C', local, 'status', '--porcelain']), '')
+    // 提交全部必须同时覆盖已修改文件和新增文件，不能只提交暂存区中的 lock 文件。
+    writeFileSync(join(local, renamed), 'modified again\n')
+    writeFileSync(join(local, 'new file.txt'), 'new\n')
+    writeFileSync(join(local, 'uv.lock'), 'lock\n')
+    run(['-C', local, 'add', 'uv.lock'])
+    await gitCommitFiles(local, null, 'commit all changes')
+    assert.equal(run(['-C', local, 'status', '--porcelain']), '')
+    assert.equal(run(['-C', local, 'show', 'HEAD:new file.txt']), 'new')
+    assert.equal(run(['-C', local, 'show', `HEAD:${renamed}`]), 'modified again')
+    await gitPushUpstream(local)
+    assert.equal((await gitSummary(local)).ahead, 0)
+    assert.equal(run(['--git-dir', remote, 'show', 'main:new file.txt']), 'new')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

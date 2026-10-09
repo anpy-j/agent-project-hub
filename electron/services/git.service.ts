@@ -43,11 +43,11 @@ export async function readRemotes(dir: string): Promise<Array<{ name: string; ur
     const out = await git(dir, ['remote', '-v'])
     const seen = new Map<string, string>()
     for (const line of out.split('\n')) {
-      const [name, url, kind] = line.split('\t')
-      if (!name || !url || kind !== '(fetch)') continue
+      const match = line.trim().match(/^(\S+)\s+(.+?)\s+\(fetch\)$/)
+      if (!match) continue
+      const [, name, url] = match
       if (!seen.has(name)) seen.set(name, url)
     }
-    let first = true
     return [...seen.entries()].map(([name, url]) => ({
       name,
       url,

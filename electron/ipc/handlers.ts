@@ -64,21 +64,51 @@ function getCustomCommands(projectId: string): string[] {
   return []
 }
 
+function getHiddenRunCommands(projectId: string): string[] {
+  const row = getDb()
+    .prepare('SELECT hidden_run_commands FROM project_config WHERE project_id = ?')
+    .get(projectId) as { hidden_run_commands: string } | undefined
+  return row ? JSON.parse(row.hidden_run_commands) : []
+}
+
 export function registerIpcHandlers(): void {
   // ---- workspace ----
   ipcMain.handle('workspace:list', () => workspaceRepo.list())
 
   // ---- project ----
-  ipcMain.handle('project:list', (_e, workspaceId?: string) =>
-    projectRepo.list(workspaceId)
-  )
+  ipcMain.handle('project:list', async (_e, workspaceId?: string) => {
+    const projects = projectRepo.list(workspaceId)
+    const missing = projects.filter((project) => !project.remotes?.length)
+    // 补齐旧项目遗漏的 Git 关联；限制并发，避免一次启动过多 Git 进程。
+    for (let i = 0; i < missing.length; i += 4) {
+      await Promise.all(missing.slice(i, i + 4).map(async (project) => {
+        const remotes = await readRemotes(project.path)
+        if (remotes.length) project.remotes = remoteRepo.replaceAll(project.id, remotes)
+      }))
+    }
+    return projects
+  })
   ipcMain.handle('project:get', (_e, id: string) => projectRepo.get(id))
   ipcMain.handle('project:runCommands', (_e, id: string) => {
     const project = projectRepo.get(id)
     if (!project) throw new Error('项目不存在')
-    const suggestions = suggestCommands(project).map((c) => ({ ...c, custom: false }))
+    const hidden = new Set(getHiddenRunCommands(id))
+    const suggestions = suggestCommands(project)
+      .filter((c) => !hidden.has(c.cmd))
+      .map((c) => ({ ...c, custom: false }))
     const custom = getCustomCommands(id).map((c) => ({ name: c, cmd: c, bin: c, args: [] as string[], custom: true }))
     return [...custom, ...suggestions]
+  })
+  ipcMain.handle('project:runCommands:remove', (_e, id: string, cmd: string) => {
+    if (!projectRepo.get(id)) throw new Error('项目不存在')
+    if (typeof cmd !== 'string' || !cmd.trim()) throw new Error('命令不能为空')
+    const custom = getCustomCommands(id).filter((c) => c !== cmd)
+    const hidden = [...new Set([...getHiddenRunCommands(id), cmd])]
+    getDb().prepare(
+      `INSERT INTO project_config (project_id, run_command, hidden_run_commands) VALUES (?, ?, ?)
+       ON CONFLICT(project_id) DO UPDATE SET run_command = excluded.run_command,
+       hidden_run_commands = excluded.hidden_run_commands`
+    ).run(id, JSON.stringify(custom), JSON.stringify(hidden))
   })
   ipcMain.handle('project:detail', async (_e, id: string) => {
     let project = projectRepo.get(id)

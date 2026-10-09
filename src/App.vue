@@ -15,10 +15,16 @@ const navGroups = [
   {
     label: '工作台',
     items: [
-      { path: '/projects', label: '项目总览', icon: 'Folder' },
-      { path: '/services', label: '本机服务', icon: 'Odometer' },
+      { path: '/projects', label: '项目管理', icon: 'Folder' },
       { path: '/delivery', label: '镜像与服务器', icon: 'UploadFilled' },
       { path: '/disk-cleaner', label: 'AI 磁盘管家', icon: 'Brush' }
+    ]
+  },
+  {
+    label: 'AI',
+    items: [
+      { path: '/ai/skills', label: 'Skills 管理', icon: 'Collection' },
+      { path: '/ai/assistant', label: '技能助手', icon: 'MagicStick' }
     ]
   },
   {

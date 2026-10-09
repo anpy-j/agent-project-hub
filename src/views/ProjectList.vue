@@ -1,17 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useProjectStore } from '../stores/project'
 import type { Project, LogChunk, RunSuggestion, TaskHistory } from '../types'
 import ConsolePanel from '../components/ConsolePanel.vue'
 import AddProjectDialog from '../components/AddProjectDialog.vue'
-import PageHeader from '../components/PageHeader.vue'
-import StatStrip from '../components/StatStrip.vue'
 import { onHotkey } from '../composables/hotkeys'
 
 const router = useRouter()
+const route = useRoute()
 const workspaceStore = useWorkspaceStore()
 const projectStore = useProjectStore()
 
@@ -53,9 +52,6 @@ const consolePanelRef = ref<InstanceType<typeof ConsolePanel> | null>(null)
 const viewMode = ref<'table' | 'card'>('table')
 const keyword = ref('')
 const searchInputRef = ref<{ focus: () => void } | null>(null)
-const platformFilter = ref('all')
-const stageFilter = ref<'all' | 'developing' | 'released'>('all')
-const tagFilter = ref<string[]>([])
 const groupBy = ref<'none' | 'type' | 'tag'>('none')
 const sortBy = ref<'recent' | 'name' | 'progress'>('recent')
 // 暂时隐藏，保留列实现以便后续恢复。
@@ -69,25 +65,13 @@ const filteredProjects = computed(() =>
     : projectStore.projects
 )
 
-const allTags = computed(() => {
-  const set = new Set<string>()
-  for (const p of filteredProjects.value) {
-    for (const t of p.tags || []) set.add(t)
-  }
-  return [...set].sort()
-})
-
 const baseRows = computed(() => {
   const k = keyword.value.trim().toLowerCase()
   const rows = filteredProjects.value.filter((p) => {
-    if (platformFilter.value === 'linked' && !(p.remotes && p.remotes.length)) return false
-    if (platformFilter.value === 'local' && p.remotes && p.remotes.length) return false
-    if (stageFilter.value === 'developing' && (p.progress_percent || 0) === 0) return false
-    if (stageFilter.value === 'released' && p.progress_stage !== 'released') return false
-    if (tagFilter.value.length && !tagFilter.value.every((t) => (p.tags || []).includes(t))) return false
     if (!k) return true
     return (
       p.name.toLowerCase().includes(k) ||
+      (p.display_name || '').toLowerCase().includes(k) ||
       p.path.toLowerCase().includes(k) ||
       (p.tags || []).some((t) => t.toLowerCase().includes(k)) ||
       (p.remotes || []).some((r) => r.url.toLowerCase().includes(k))
@@ -190,23 +174,9 @@ function platformLabel(p: Project): string {
   return r === 'github' ? 'GitHub' : r === 'gitee' ? 'Gitee' : r === 'gitlab' ? 'GitLab' : r ? 'Git' : '仅本地'
 }
 
-/** 列表主标题：优先显示中文名称，未设置时用原名称 */
+/** 中文名与原项目名共存，未设置中文名时只显示项目名。 */
 function displayName(p: Project): string {
-  return p.display_name || p.name
-}
-
-/** 英文项目名：优先取目录名，其次远程仓库名；与展示名相同则不再重复展示 */
-function englishName(p: Project): string {
-  const segs = p.path.split('/').filter(Boolean)
-  let en = segs[segs.length - 1] || ''
-  if (!en) {
-    const url = (p.remotes || [])[0]?.url || ''
-    const m = url.match(/\/([^/]+?)(\.git)?$/)
-    if (m) en = m[1]
-  }
-  const shown = displayName(p)
-  if (!en || en.toLowerCase() === shown.toLowerCase()) return ''
-  return en
+  return p.display_name ? `${p.display_name}(${p.name})` : p.name
 }
 
 function timeAgo(iso: string | null): string {
@@ -317,19 +287,31 @@ window.api.runner.onLog((chunk: LogChunk) => {
   consolePanelRef.value?.append(chunk)
 })
 
-onHotkey('focus-search', () => searchInputRef.value?.focus())
-onHotkey('new-project', openAdd)
+onHotkey('focus-search', () => {
+  if (route.name === 'projects') searchInputRef.value?.focus()
+})
+onHotkey('new-project', () => {
+  if (route.name === 'projects') openAdd()
+})
 </script>
 
 <template>
   <div class="page project-list-page">
-    <PageHeader title="项目列表" :subtitle="`共 ${filteredProjects.length} 个项目`">
-      <template #meta>
-        <span v-if="workspaceStore.currentId" class="pill">
-          {{ workspaceStore.list.find((w) => w.id === workspaceStore.currentId)?.name }}
+    <div class="project-toolbar">
+      <div class="project-summary" aria-label="项目统计">
+        <span v-for="stat in stats" :key="stat.label" class="summary-item">
+          <span>{{ stat.label }}</span><strong>{{ stat.value }}</strong>
         </span>
-      </template>
-      <template #actions>
+      </div>
+      <div class="toolbar-actions">
+        <el-radio-group v-model="viewMode" size="default" class="view-switch" aria-label="项目视图">
+          <el-tooltip content="表格视图" placement="top">
+            <el-radio-button value="table"><el-icon><Menu /></el-icon></el-radio-button>
+          </el-tooltip>
+          <el-tooltip content="卡片视图" placement="top">
+            <el-radio-button value="card"><el-icon><Grid /></el-icon></el-radio-button>
+          </el-tooltip>
+        </el-radio-group>
         <el-input
           ref="searchInputRef"
           v-model="keyword"
@@ -351,54 +333,7 @@ onHotkey('new-project', openAdd)
         <el-button type="primary" @click="openAdd">
           <el-icon><Plus /></el-icon>添加项目
         </el-button>
-      </template>
-    </PageHeader>
-
-    <StatStrip :items="stats" class="project-stats" />
-
-    <!-- 工具条 -->
-    <div class="filter-bar">
-      <el-radio-group v-model="platformFilter" size="small">
-        <el-radio-button value="all">全部</el-radio-button>
-        <el-radio-button value="linked">已关联远程</el-radio-button>
-        <el-radio-button value="local">仅本地</el-radio-button>
-      </el-radio-group>
-      <el-radio-group v-model="stageFilter" size="small">
-        <el-radio-button value="all">全部阶段</el-radio-button>
-        <el-radio-button value="developing">开发中</el-radio-button>
-        <el-radio-button value="released">已发布</el-radio-button>
-      </el-radio-group>
-      <el-select
-        v-model="tagFilter"
-        multiple
-        collapse-tags
-        collapse-tags-tooltip
-        clearable
-        placeholder="按标签筛选"
-        size="small"
-        style="width: 180px"
-      >
-        <el-option v-for="t in allTags" :key="t" :label="t" :value="t" />
-      </el-select>
-      <el-select v-model="groupBy" size="small" style="width: 130px">
-        <el-option label="不分组" value="none" />
-        <el-option label="按类型分组" value="type" />
-        <el-option label="按标签分组" value="tag" />
-      </el-select>
-      <el-select v-model="sortBy" size="small" style="width: 130px">
-        <el-option label="最近活动排序" value="recent" />
-        <el-option label="按名称排序" value="name" />
-        <el-option label="按进度排序" value="progress" />
-      </el-select>
-      <span class="flex-1" />
-      <el-radio-group v-model="viewMode" size="small">
-        <el-tooltip content="表格视图" placement="top">
-          <el-radio-button value="table"><el-icon><Menu /></el-icon></el-radio-button>
-        </el-tooltip>
-        <el-tooltip content="卡片视图" placement="top">
-          <el-radio-button value="card"><el-icon><Grid /></el-icon></el-radio-button>
-        </el-tooltip>
-      </el-radio-group>
+      </div>
     </div>
 
     <!-- 表格视图（企业级默认） -->
@@ -421,7 +356,6 @@ onHotkey('new-project', openAdd)
                 <div class="cell-project">
                   <div class="proj-name">
                     <span class="proj-title">{{ displayName(row as Project) }}</span>
-                    <span v-if="englishName(row as Project)" class="proj-en">({{ englishName(row as Project) }})</span>
                     <span v-for="tag in (row.tags || []).slice(0, 2)" :key="tag" class="pill">{{ tag }}</span>
                   </div>
                 </div>
@@ -475,7 +409,7 @@ onHotkey('new-project', openAdd)
                 <span class="cell-time">{{ timeAgo(row.last_run_at || row.updated_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="230" align="right">
+            <el-table-column label="操作" width="230" align="left">
               <template #default="{ row }">
                 <div class="cell-actions" @click.stop>
                   <el-button
@@ -489,7 +423,6 @@ onHotkey('new-project', openAdd)
                   <el-button v-else type="danger" size="small" @click.stop="stopProject(row as Project)">
                     停止
                   </el-button>
-                  <el-button size="small" @click.stop="router.push(`/projects/${(row as Project).id}`)">详情</el-button>
                   <el-dropdown trigger="click" @command="(cmd: string) => onRowMenu(cmd, row as Project)">
                     <el-button size="small" @click.stop>
                       <el-icon><MoreFilled /></el-icon>
@@ -497,7 +430,7 @@ onHotkey('new-project', openAdd)
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item command="finder">打开目录</el-dropdown-item>
-                        <el-dropdown-item command="rename">改名</el-dropdown-item>
+                        <el-dropdown-item command="rename">中文名</el-dropdown-item>
                         <el-dropdown-item command="remove" divided>删除项目</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
@@ -528,16 +461,11 @@ onHotkey('new-project', openAdd)
             <div class="card-head">
               <div class="name">
                 {{ displayName(p) }}
-                <span v-if="englishName(p)" class="proj-en">({{ englishName(p) }})</span>
               </div>
               <span class="type-chip">{{ typeLabel[p.type] }}</span>
             </div>
             <div v-if="p.tags?.length" class="card-tags">
               <span v-for="tag in p.tags.slice(0, 3)" :key="tag" class="pill">{{ tag }}</span>
-            </div>
-            <div class="path" :title="p.path" @click.stop="openInFinder(p)">
-              <el-icon><FolderOpened /></el-icon>
-              <span>{{ p.path }}</span>
             </div>
             <div class="card-progress">
               <el-progress
@@ -563,7 +491,6 @@ onHotkey('new-project', openAdd)
                 <el-button v-else type="danger" size="small" @click.stop="stopProject(p)">
                   <el-icon><VideoPause /></el-icon>停止
                 </el-button>
-                <el-button size="small" @click.stop="router.push(`/projects/${p.id}`)">详情</el-button>
                 <el-dropdown trigger="click" @command="(cmd: string) => onRowMenu(cmd, p)">
                   <el-button size="small" @click.stop>
                     <el-icon><MoreFilled /></el-icon>
@@ -571,7 +498,7 @@ onHotkey('new-project', openAdd)
                   <template #dropdown>
                     <el-dropdown-menu>
                       <el-dropdown-item command="finder">打开目录</el-dropdown-item>
-                      <el-dropdown-item command="rename">改名</el-dropdown-item>
+                      <el-dropdown-item command="rename">中文名</el-dropdown-item>
                       <el-dropdown-item command="remove" divided>删除项目</el-dropdown-item>
                     </el-dropdown-menu>
                   </template>
@@ -646,51 +573,49 @@ onHotkey('new-project', openAdd)
   min-height: 0;
   padding-bottom: 16px;
 }
-.project-list-page :deep(.page-head) {
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-}
-.project-stats {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  margin-bottom: 12px;
-  padding: 8px 0;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: var(--ph-radius-md);
-}
-.project-stats :deep(.stat-card) {
-  gap: 10px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  transform: none;
-}
-.project-stats :deep(.stat-card + .stat-card) {
-  border-left: 1px solid var(--el-border-color-lighter);
-}
-.project-stats :deep(.stat-icon) {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-}
-.project-stats :deep(.stat-body) {
-  flex: 1;
-  flex-direction: row-reverse;
+.project-toolbar {
+  display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+.project-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.summary-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+.summary-item strong {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-primary);
+}
+.toolbar-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  min-width: 0;
 }
-.project-stats :deep(.stat-num) {
-  font-size: 20px;
+.toolbar-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
-.filter-bar {
-  margin-bottom: 12px;
+.view-switch {
+  flex-shrink: 0;
 }
 .search-input {
-  width: 300px;
+  width: 260px;
 }
 .console-badge {
   margin-left: 6px;
@@ -717,20 +642,14 @@ onHotkey('new-project', openAdd)
   padding: 0;
 }
 @media (max-width: 900px) {
-  .project-stats :deep(.stat-card) {
-    gap: 6px;
-    padding: 0 8px;
-  }
-  .project-stats :deep(.stat-icon) {
-    display: none;
-  }
-  .project-list-page :deep(.head-actions) {
+  .toolbar-actions {
+    width: 100%;
     flex-wrap: wrap;
-    min-width: 0;
-    max-width: 100%;
   }
   .search-input {
-    width: min(300px, 100%);
+    flex: 1;
+    min-width: 180px;
+    width: auto;
   }
 }
 .group-head {
@@ -770,12 +689,6 @@ onHotkey('new-project', openAdd)
   flex-wrap: wrap;
 }
 .proj-title {
-  white-space: nowrap;
-}
-.proj-en {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--el-text-color-secondary);
   white-space: nowrap;
 }
 .cell-language {
@@ -823,7 +736,7 @@ onHotkey('new-project', openAdd)
 .cell-actions {
   display: flex;
   gap: 6px;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 .text-muted {
   color: var(--el-text-color-secondary);
@@ -938,27 +851,6 @@ onHotkey('new-project', openAdd)
 .name {
   font-weight: 600;
   font-size: 15px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.name .proj-en {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--el-text-color-secondary);
-}
-.path {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  cursor: pointer;
-  margin-bottom: 10px;
-  overflow: hidden;
-}
-.path span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

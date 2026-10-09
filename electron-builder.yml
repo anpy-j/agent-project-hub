@@ -1,0 +1,22 @@
+appId: com.anpy.projecthub
+productName: Project Hub
+directories:
+  output: dist
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: resources/bundled-skills
+    to: bundled-skills
+    filter:
+      - '**/*'
+      - '!**/.git/**'
+      - '!**/node_modules/**'
+      - '!**/.env'
+      - '!**/.env.*'
+asar: true
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

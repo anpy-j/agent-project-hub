@@ -287,7 +287,7 @@ onUnmounted(() => {
 
 <template>
   <div class="page">
-    <PageHeader title="本机服务管理" subtitle="统一管理手动安装的本机服务：CLI 工具、守护进程、AI 服务等">
+    <PageHeader title="服务模块" subtitle="管理本机服务：CLI 工具、守护进程、AI 服务等">
       <template #actions>
         <el-button @click="refresh">
           <el-icon><Refresh /></el-icon>刷新状态

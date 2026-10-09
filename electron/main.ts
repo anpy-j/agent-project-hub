@@ -9,6 +9,7 @@ import { serviceManager } from './services/service-manager.service'
 import { runStartupMaintenance } from './services/maintenance.service'
 import { registerDeploymentIpc } from './ipc/deployment'
 import { hasActiveReleases } from './services/deployment.service'
+import { registerSkillsIpc } from './ipc/skills'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -58,7 +59,7 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.anpy.projecthub')
 
   app.on('browser-window-created', (_, window) => {
@@ -69,6 +70,7 @@ app.whenReady().then(() => {
   runStartupMaintenance()
   registerIpcHandlers()
   registerDeploymentIpc()
+  await registerSkillsIpc()
   runtimeService.scan()
   serviceManager.autostart()
 

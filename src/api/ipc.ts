@@ -32,6 +32,7 @@ import type {
 import type { DeploymentAPI } from '../types/deployment'
 
 export interface ProjectHubAPI {
+  skills: import('../types/skills').SkillsAPI
   gitAuth: {
     snapshot: () => Promise<import('../types/git-auth').GitAuthSnapshot>
     test: (data: { platform: string; url?: string }) => Promise<import('../types/git-auth').GitAuthResult>
@@ -57,6 +58,7 @@ export interface ProjectHubAPI {
     detect: (path: string) => Promise<DetectResult>
     buildCommand: (id: string) => Promise<string>
     runCommands: (id: string) => Promise<RunSuggestion[]>
+    removeRunCommand: (id: string, cmd: string) => Promise<void>
     customCommands: {
       get: (id: string) => Promise<string[]>
       save: (id: string, cmds: string[]) => Promise<string[]>

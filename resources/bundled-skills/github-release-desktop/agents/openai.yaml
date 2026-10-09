@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub 安装包发布"
+  short_description: "构建桌面安装包、校验发布产物并通过 GitHub Releases 分发"
+  default_prompt: "使用 $github-release-desktop 为当前项目构建 Windows 安装包并发布到 GitHub Releases。"

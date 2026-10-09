@@ -50,6 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_remote_project ON project_remote(project_id);
 CREATE TABLE IF NOT EXISTS project_config (
   project_id      TEXT PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
   run_command     TEXT,
+  hidden_run_commands TEXT NOT NULL DEFAULT '[]',
   run_env         TEXT,
   build_env       TEXT,
   run_cwd         TEXT,
