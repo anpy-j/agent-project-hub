@@ -17,6 +17,8 @@ const loading = ref(true)
 const saving = ref(false)
 const savingBasic = ref(false)
 const busy = ref('')
+// 暂时隐藏开发进度模块，保留实现以便恢复。
+const showProgressModule = ref(false)
 
 const progress = ref<{ percent: number; stage: Project['progress_stage']; note: string }>({
   percent: 0,
@@ -845,7 +847,7 @@ onMounted(async () => {
 
       <div class="grid">
         <div class="col col-l">
-          <el-card class="block">
+          <el-card v-if="showProgressModule" class="block">
             <template #header>
               <div class="head-row">
                 <b>开发进度</b>

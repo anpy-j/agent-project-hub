@@ -5,6 +5,14 @@ import type { Runtime, AiConfig, AiProviderOption, AiProvider, LogUsage, Mainten
 import PageHeader from '../components/PageHeader.vue'
 import GitAuthSettings from '../components/GitAuthSettings.vue'
 
+const activeSection = ref('git')
+const sections = [
+  { id: 'git', title: '仓库认证', description: 'SSH 密钥与连接测试', icon: 'Key' },
+  { id: 'ai', title: 'AI 服务', description: '模型与服务连接', icon: 'MagicStick' },
+  { id: 'runtime', title: '运行环境', description: '本机开发工具与版本', icon: 'Cpu' },
+  { id: 'maintenance', title: '数据与日志', description: '存储用量与历史清理', icon: 'Document' }
+]
+
 // ---- 运行时管理 ----
 const runtimes = ref<Runtime[]>([])
 const logUsage = ref<LogUsage>({ files: 0, bytes: 0 })
@@ -176,17 +184,31 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="page page-scroll">
-    <PageHeader title="设置" subtitle="Git 仓库认证、运行时、AI 服务发现等全局配置" />
+  <div class="page settings-page">
+    <PageHeader title="全局设置" subtitle="管理仓库连接、AI 服务与本机开发环境" />
+
+    <nav class="settings-nav" aria-label="设置分类">
+      <button
+        v-for="section in sections"
+        :key="section.id"
+        type="button"
+        :class="['section-button', { active: activeSection === section.id }]"
+        :aria-pressed="activeSection === section.id"
+        @click="activeSection = section.id"
+      >
+        <el-icon class="section-icon" :size="20"><component :is="section.icon" /></el-icon>
+        <span class="section-copy"><span class="section-title">{{ section.title }}</span><span class="section-description">{{ section.description }}</span></span>
+      </button>
+    </nav>
 
     <div class="settings-stack">
-      <GitAuthSettings />
+      <GitAuthSettings v-show="activeSection === 'git'" />
       <!-- AI 设置 -->
-      <el-card v-loading="aiLoading">
+      <el-card v-show="activeSection === 'ai'" v-loading="aiLoading">
         <template #header>
           <div class="card-head">
             <span class="card-title">
-              AI 设置（服务发现 Agent）
+              AI 服务配置
               <span class="pill" :class="{ 'is-primary': aiConfigured }">
                 {{ savedSummary ? `已连接：${savedSummary}` : '未配置' }}
               </span>
@@ -249,7 +271,7 @@ onMounted(() => {
       </el-card>
 
       <!-- 运行时管理 -->
-      <el-card>
+      <el-card v-show="activeSection === 'runtime'">
         <template #header>
           <div class="card-head">
             <span class="card-title">运行时管理</span>
@@ -276,7 +298,7 @@ onMounted(() => {
         </el-table>
       </el-card>
 
-      <el-card>
+      <el-card v-show="activeSection === 'maintenance'">
         <template #header>
           <b>数据与日志</b>
         </template>
@@ -293,11 +315,74 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.settings-page {
+  box-sizing: border-box;
+  min-height: 0;
+  padding-bottom: 18px;
+}
+.settings-nav {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  flex-shrink: 0;
+  margin-bottom: 18px;
+  padding: 6px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 12px;
+  background: var(--el-bg-color);
+}
+.section-button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.section-button:hover { background: var(--el-fill-color-light); }
+.section-button.active {
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary-light-7);
+  color: var(--el-color-primary);
+}
+.section-button:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 2px; }
+.section-icon { flex-shrink: 0; }
+.section-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.section-title { font-size: 14px; font-weight: 600; }
+.section-description { font-size: 12px; color: var(--el-text-color-secondary); }
 .settings-stack {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding-bottom: 28px;
+  padding-bottom: 2px;
+}
+.settings-stack > :deep(.el-card) {
+  flex-shrink: 0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.settings-stack :deep(.el-card__header) {
+  padding: 16px 20px;
+  background: var(--el-fill-color-extra-light);
+}
+.settings-stack :deep(.el-card__body) { padding: 20px; }
+.settings-stack :deep(.el-form) { max-width: 760px; }
+.settings-stack :deep(.el-form-item__content > .el-input),
+.settings-stack :deep(.el-form-item__content > .el-select) { max-width: 100%; }
+@media (max-width: 1050px) {
+  .section-button { padding: 10px; gap: 8px; }
+  .section-description { display: none; }
+}
+@media (max-width: 700px) {
+  .settings-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .card-head {
   display: flex;

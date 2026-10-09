@@ -10,13 +10,27 @@ export function detectPlatformOf(url: string): GitPlatform {
   return 'other'
 }
 
-function git(dir: string, args: string[]): Promise<string> {
+function git(dir: string, args: string[], raw = false): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('git', ['-C', dir, ...args], { timeout: 15000, maxBuffer: 1024 * 1024 }, (err, stdout) => {
       if (err) reject(err)
-      else resolve(String(stdout || '').trim())
+      else resolve(raw ? String(stdout || '') : String(stdout || '').trim())
     })
   })
+}
+
+export function parseGitChanges(output: string): Array<{ path: string; status: string }> {
+  const records = output.split('\0')
+  const changes: Array<{ path: string; status: string }> = []
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]
+    if (!record) continue
+    const status = record.slice(0, 2)
+    changes.push({ status: status.trim() || 'M', path: record.slice(3) })
+    // porcelain -z 的重命名/复制记录先输出目标路径，再输出原路径。
+    if (/[RC]/.test(status)) i++
+  }
+  return changes
 }
 
 export function isGitRepo(dir: string): boolean {
@@ -74,11 +88,8 @@ export async function gitSummary(dir: string): Promise<GitSummary> {
     }
     let changes: Array<{ path: string; status: string }> = []
     try {
-      const st = await git(dir, ['status', '--porcelain'])
-      changes = st
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => ({ status: line.slice(0, 2).trim() || 'M', path: line.slice(3) }))
+      const st = await git(dir, ['status', '--porcelain=v1', '-z'], true)
+      changes = parseGitChanges(st)
     } catch {
       // ignore
     }
