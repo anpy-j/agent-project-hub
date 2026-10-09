@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { zipSync } from 'fflate'
 import { SkillsManager } from '../electron/services/skills.service'
 import { MemorySkillsStore } from '../electron/services/skills-store'
-import { extractSkillZip, manifest, safeRelative, skillHash } from '../electron/services/skills-files'
+import { extractSkillZip, manifest, safeRelative, skillHash, skillMetadata, OPENAI_YAML_WARNING } from '../electron/services/skills-files'
 import { publicAddress } from '../electron/services/skills-source'
 import { seedBundledSkills } from '../electron/services/skills-bundled'
 import type { SkillTargetInfo } from '../src/types/skills'
@@ -96,6 +96,29 @@ test('manifest handles multiline YAML and rejects malformed names / aliases', ()
   assert.equal(value.description, 'Builds apps and publishes them.')
   assert.throws(() => manifest('---\nname: ../outside\ndescription: bad\n---\n', 'x'))
   assert.throws(() => manifest('---\nname: demo\ndescription: &d text\nmetadata: *d\n---\n', 'demo'))
+})
+
+test('Windows YAML line endings parse without changing files; old cached warnings are refreshed', async () => {
+  const f = fixture()
+  try {
+    mkdirSync(join(f.source, 'agents'))
+    const yaml = 'interface:\r\r\n  display_name: "发布助手"\r\r\n  short_description: "发布技能"\r\r\n'
+    writeFileSync(join(f.source, 'agents/openai.yaml'), yaml)
+    const metadata = skillMetadata(f.source)
+    assert.equal(metadata.title, '发布助手')
+    assert.ok(!metadata.warnings.includes(OPENAI_YAML_WARNING))
+    assert.equal(manifest('---\r\r\nname: demo\r\r\ndescription: Demo\r\r\n---\r\r\n# Demo Title', 'demo').title, 'Demo Title')
+    const skill = await f.imported()
+    f.store.savePackage({ ...skill, title: '旧名称', warnings: [OPENAI_YAML_WARNING, '保留其他提示'] })
+    const refreshed = f.manager.snapshot().skills[0]
+    assert.equal(refreshed.title, '发布助手')
+    assert.deepEqual(refreshed.warnings, ['保留其他提示'])
+    assert.equal(refreshed.hash, skill.hash)
+    assert.equal(f.manager.readFile(skill.id, 'agents/openai.yaml'), yaml)
+    assert.equal(refreshed.updatedAt, skill.updatedAt)
+    writeFileSync(join(f.source, 'agents/openai.yaml'), 'interface: [invalid')
+    assert.ok(skillMetadata(f.source).warnings.includes(OPENAI_YAML_WARNING))
+  } finally { f.cleanup() }
 })
 
 test('imports complete packages, deduplicates content and preserves original files', async () => {

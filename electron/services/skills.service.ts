@@ -4,7 +4,7 @@ import { basename, dirname, join, relative, resolve, parse as parsePath } from '
 import { homedir } from 'node:os'
 import type { SkillCandidate, SkillContext, SkillHistory, SkillImportInput, SkillInstallInput, SkillInstallation, SkillPackage, SkillPreview, SkillSnapshot, SkillSource, SkillTargetInfo, SkillUpdate } from '../../src/types/skills'
 import type { SkillsStore } from './skills-store'
-import { copySkill, extractSkillZip, findSkillRoots, inside, manifest, readSkillText, safeRelative, skillFiles, skillHash, skillMetadata, SKILL_LIMITS, zipSkill } from './skills-files'
+import { copySkill, extractSkillZip, findSkillRoots, inside, manifest, readSkillText, safeRelative, skillFiles, skillHash, skillMetadata, OPENAI_YAML_WARNING, SKILL_LIMITS, zipSkill } from './skills-files'
 import { downloadSkill, resolveGithub } from './skills-source'
 import { skillTargets, targetPath } from './skills-targets'
 
@@ -55,6 +55,20 @@ export class SkillsManager {
     if (samePath(path, parsePath(path).root)) throw new Error('不能操作文件系统根目录')
   }
   snapshot(): SkillSnapshot {
+    // Revalidate old cached YAML warnings after a parser fix, without modifying
+    // package bytes, versions or installations. Keep warnings for real errors.
+    const skills = this.options.store.packages().map(skill => {
+      if (!skill.warnings.includes(OPENAI_YAML_WARNING)) return skill
+      try {
+        const root = this.packageRoot(skill.id)
+        if (skillHash(root) !== skill.hash) return skill
+        const metadata = skillMetadata(root)
+        if (metadata.warnings.includes(OPENAI_YAML_WARNING)) return skill
+        const refreshed = { ...skill, title: metadata.title, warnings: [...new Set([...skill.warnings.filter(w => w !== OPENAI_YAML_WARNING), ...metadata.warnings])] }
+        this.options.store.savePackage(refreshed)
+        return refreshed
+      } catch { return skill }
+    })
     const installations = this.options.store.installations().map(i => {
       if (i.target === 'hub') return { ...i, status: i.enabled ? 'installed' as const : 'disabled' as const }
       const actual = i.enabled ? i.path : inside(this.root, `disabled/${i.id}`)
@@ -62,7 +76,7 @@ export class SkillsManager {
       try { if (!existsSync(actual)) status = 'missing'; else if (skillHash(actual) !== i.hash) status = 'modified' } catch { status = 'modified' }
       return { ...i, status }
     })
-    return { skills: this.options.store.packages().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), installations, targets: this.targets, bundledPath: this.options.bundledRoot }
+    return { skills: skills.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), installations, targets: this.targets, bundledPath: this.options.bundledRoot }
   }
   private newStage(): { token: string; stage: Stage } {
     for (const [token, stage] of this.stages) if (Date.now() - stage.created > 30 * 60 * 1000) this.discard(token)
