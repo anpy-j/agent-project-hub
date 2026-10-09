@@ -24,11 +24,27 @@ const detectResult = ref<DetectResult | null>(null)
 const remotes = ref<Array<{ name: string; url: string; platform?: string; is_default: number }>>([])
 const newRemote = ref({ name: '', url: '' })
 const submitting = ref(false)
+const source = ref<'local' | 'git'>('local')
+const cloneForm = ref({ url: '', parent: '', directory: '' })
+
+watch(() => cloneForm.value.url, (url, previous) => {
+  const repoName = (value: string) => value.trim().replace(/\/+$/, '').split(/[/:]/).pop()?.replace(/\.git$/, '') || ''
+  if (!cloneForm.value.directory || cloneForm.value.directory === repoName(previous)) {
+    cloneForm.value.directory = repoName(url)
+  }
+})
+
+async function pickCloneDir() {
+  const dir = await window.api.system.pickDirectory()
+  if (dir) cloneForm.value.parent = dir
+}
 
 watch(
   () => props.visible,
   (v) => {
     if (v) {
+      source.value = 'local'
+      cloneForm.value = { url: '', parent: '', directory: '' }
       form.value = { path: '', name: '', type: '', framework: '', description: '' }
       detectResult.value = null
       remotes.value = []
@@ -133,11 +149,35 @@ function removeRemote(r: { url: string }) {
 }
 
 async function submit() {
+  if (submitting.value) return
+  if (source.value === 'git') {
+    if (!cloneForm.value.url.trim() || !cloneForm.value.parent || !cloneForm.value.directory.trim()) {
+      ElMessage.warning('请填写仓库地址、存放目录和项目文件夹名称')
+      return
+    }
+    submitting.value = true
+    try {
+      form.value.path = await window.api.project.clone({
+        url: cloneForm.value.url.trim(),
+        parent: cloneForm.value.parent,
+        directory: cloneForm.value.directory.trim()
+      })
+      // 克隆成功后切换本地模式；若添加失败，可直接重试添加。
+      source.value = 'local'
+      applyDetectResult(await window.api.project.detect(form.value.path))
+    } catch (e) {
+      ElMessage.error((e as Error).message)
+      submitting.value = false
+      return
+    }
+  }
   if (!form.value.path) {
+    submitting.value = false
     ElMessage.warning('请选择项目路径')
     return
   }
   if (!form.value.name) {
+    submitting.value = false
     ElMessage.warning('请填写项目名称')
     return
   }
@@ -175,9 +215,32 @@ async function submit() {
     class="ph-dialog"
     align-center
     :close-on-click-modal="false"
+    :close-on-press-escape="!submitting"
+    :show-close="!submitting"
     @update:model-value="(v: boolean) => emit('update:visible', v)"
   >
-    <el-form :model="form" label-width="90px">
+    <el-radio-group v-model="source" :disabled="submitting" class="source-switch">
+      <el-radio-button value="local">添加本地项目</el-radio-button>
+      <el-radio-button value="git">从 Git 仓库拉取</el-radio-button>
+    </el-radio-group>
+    <el-form v-if="source === 'git'" label-width="100px" :disabled="submitting">
+      <el-form-item label="仓库地址" required>
+        <el-input v-model="cloneForm.url" placeholder="HTTPS 或 SSH Git 仓库地址" clearable />
+      </el-form-item>
+      <el-form-item label="存放目录" required>
+        <div class="path-row">
+          <el-input v-model="cloneForm.parent" placeholder="选择项目存放的父目录" />
+          <el-button @click="pickCloneDir">浏览</el-button>
+        </div>
+      </el-form-item>
+      <el-form-item label="项目文件夹" required>
+        <el-input v-model="cloneForm.directory" placeholder="自动使用仓库名称，可修改" />
+      </el-form-item>
+      <el-form-item label="">
+        <div class="sub-tip">将在存放目录下创建项目文件夹，拉取后自动识别项目类型并添加。私有仓库使用本机已配置的 Git 认证。</div>
+      </el-form-item>
+    </el-form>
+    <el-form v-else :model="form" label-width="90px" :disabled="submitting">
       <el-form-item label="项目路径" required>
         <div class="path-row">
           <el-input v-model="form.path" placeholder="选择本地项目目录" clearable />
@@ -249,13 +312,16 @@ async function submit() {
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="emit('update:visible', false)">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="submit">添加</el-button>
+      <el-button :disabled="submitting" @click="emit('update:visible', false)">取消</el-button>
+      <el-button type="primary" :loading="submitting" @click="submit">{{ source === 'git' ? '拉取并添加' : '添加' }}</el-button>
     </template>
   </el-dialog>
 </template>
 
 <style scoped>
+.source-switch {
+  margin-bottom: 20px;
+}
 :deep(.ph-dialog) {
   border-radius: 14px;
 }

@@ -38,6 +38,7 @@ const api: ProjectHubAPI = {
     get: (id: string) => invoke('project:get', id),
     detail: (id: string) => invoke('project:detail', id),
     add: (data) => invoke('project:add', data),
+    clone: (data) => invoke('project:clone', data),
     update: (id, data) => invoke('project:update', id, data),
     remove: (id: string) => invoke('project:remove', id),
     syncRemotes: (id: string) => invoke('project:syncRemotes', id),
@@ -141,6 +142,10 @@ const api: ProjectHubAPI = {
     saveConfig: (data) => invoke('ai:saveConfig', data),
     listModels: (cfg?) => invoke('ai:listModels', cfg),
     test: (cfg?) => invoke('ai:test', cfg)
+  },
+  gitAuth: {
+    snapshot: () => invoke('gitAuth:snapshot'),
+    test: (data) => invoke('gitAuth:test', data)
   },
   system: {
     logUsage: () => invoke('system:logUsage'),

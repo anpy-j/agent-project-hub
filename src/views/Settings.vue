@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { Runtime, AiConfig, AiProviderOption, AiProvider, LogUsage, MaintenanceResult } from '../types'
 import PageHeader from '../components/PageHeader.vue'
+import GitAuthSettings from '../components/GitAuthSettings.vue'
 
 // ---- 运行时管理 ----
 const runtimes = ref<Runtime[]>([])
@@ -176,9 +177,10 @@ onMounted(() => {
 
 <template>
   <div class="page page-scroll">
-    <PageHeader title="设置" subtitle="运行时、AI 服务发现等全局配置" />
+    <PageHeader title="设置" subtitle="Git 仓库认证、运行时、AI 服务发现等全局配置" />
 
     <div class="settings-stack">
+      <GitAuthSettings />
       <!-- AI 设置 -->
       <el-card v-loading="aiLoading">
         <template #header>

@@ -16,6 +16,37 @@ const workspaceStore = useWorkspaceStore()
 const projectStore = useProjectStore()
 
 const addDialogVisible = ref(false)
+const renameDialogVisible = ref(false)
+const renameTarget = ref<Project | null>(null)
+const renameInput = ref('')
+const renameSaving = ref(false)
+
+function openRename(project: Project) {
+  renameTarget.value = project
+  renameInput.value = project.display_name || ''
+  renameDialogVisible.value = true
+}
+
+async function saveRename() {
+  if (!renameTarget.value || renameSaving.value) return
+  const displayName = renameInput.value.trim()
+  if (!displayName) {
+    ElMessage.warning('请输入中文名称')
+    return
+  }
+  renameSaving.value = true
+  try {
+    const updated = await window.api.project.update(renameTarget.value.id, { display_name: displayName })
+    const index = projectStore.projects.findIndex((p) => p.id === updated.id)
+    if (index !== -1) projectStore.projects[index] = updated
+    renameDialogVisible.value = false
+    ElMessage.success('中文名称已保存')
+  } catch (e) {
+    ElMessage.error(`保存失败: ${(e as Error).message}`)
+  } finally {
+    renameSaving.value = false
+  }
+}
 const runningTasks = ref<Record<string, string>>({}) // projectId -> taskId
 const consolePanelRef = ref<InstanceType<typeof ConsolePanel> | null>(null)
 
@@ -27,6 +58,10 @@ const stageFilter = ref<'all' | 'developing' | 'released'>('all')
 const tagFilter = ref<string[]>([])
 const groupBy = ref<'none' | 'type' | 'tag'>('none')
 const sortBy = ref<'recent' | 'name' | 'progress'>('recent')
+// 暂时隐藏，保留列实现以便后续恢复。
+const showProgressColumn = ref(false)
+const showStatusColumn = ref(false)
+const showActivityColumn = ref(false)
 
 const filteredProjects = computed(() =>
   workspaceStore.currentId
@@ -190,6 +225,8 @@ function timeAgo(iso: string | null): string {
 function onRowMenu(cmd: string, row: Project) {
   if (cmd === 'finder') {
     openInFinder(row)
+  } else if (cmd === 'rename') {
+    openRename(row)
   } else if (cmd === 'remove') {
     removeProject(row)
   }
@@ -285,7 +322,7 @@ onHotkey('new-project', openAdd)
 </script>
 
 <template>
-  <div class="page">
+  <div class="page project-list-page">
     <PageHeader title="项目列表" :subtitle="`共 ${filteredProjects.length} 个项目`">
       <template #meta>
         <span v-if="workspaceStore.currentId" class="pill">
@@ -317,7 +354,7 @@ onHotkey('new-project', openAdd)
       </template>
     </PageHeader>
 
-    <StatStrip :items="stats" />
+    <StatStrip :items="stats" class="project-stats" />
 
     <!-- 工具条 -->
     <div class="filter-bar">
@@ -365,7 +402,7 @@ onHotkey('new-project', openAdd)
     </div>
 
     <!-- 表格视图（企业级默认） -->
-    <div v-if="viewMode === 'table'" class="table-scroll">
+    <div v-if="viewMode === 'table'" class="table-scroll" :class="{ 'is-ungrouped': groupBy === 'none' }">
       <template v-for="g in visibleGroups" :key="g.key">
         <div v-if="g.label" class="group-head">
           <span class="group-name">{{ g.label }}</span>
@@ -374,6 +411,7 @@ onHotkey('new-project', openAdd)
         <el-card class="table-card ph-card" shadow="never">
           <el-table
             :data="g.rows"
+            :height="groupBy === 'none' ? '100%' : undefined"
             style="width: 100%"
             empty-text="暂无项目，点击右上角添加"
             @row-click="(row: unknown) => router.push(`/projects/${(row as Project).id}`)"
@@ -384,12 +422,22 @@ onHotkey('new-project', openAdd)
                   <div class="proj-name">
                     <span class="proj-title">{{ displayName(row as Project) }}</span>
                     <span v-if="englishName(row as Project)" class="proj-en">({{ englishName(row as Project) }})</span>
-                    <span class="type-chip">{{ typeLabel[row.type] }}</span>
-                    <span v-if="row.framework" class="type-chip">{{ row.framework }}</span>
                     <span v-for="tag in (row.tags || []).slice(0, 2)" :key="tag" class="pill">{{ tag }}</span>
                   </div>
-                  <div class="proj-path">{{ row.path }}</div>
                 </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="项目语言" min-width="150">
+              <template #default="{ row }">
+                <div class="cell-language">
+                  <span class="type-chip">{{ typeLabel[row.type] || row.type }}</span>
+                  <span v-if="row.framework" class="type-chip">{{ row.framework }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="path" label="项目路径" min-width="240" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="project-path-text">{{ row.path }}</span>
               </template>
             </el-table-column>
             <el-table-column label="远程仓库" min-width="180">
@@ -401,7 +449,7 @@ onHotkey('new-project', openAdd)
                 <span v-else class="cell-muted">仅本地</span>
               </template>
             </el-table-column>
-            <el-table-column label="开发进度" width="180">
+            <el-table-column v-if="showProgressColumn" label="开发进度" width="180">
               <template #default="{ row }">
                 <div class="cell-progress">
                   <el-progress
@@ -415,14 +463,14 @@ onHotkey('new-project', openAdd)
                 <span class="stage-text">{{ stageLabel[row.progress_stage] || '规划中' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="110">
+            <el-table-column v-if="showStatusColumn" label="状态" width="110">
               <template #default="{ row }">
                 <span v-if="runningTasks[row.id]" class="chip is-running"><span class="dot" />运行中</span>
                 <span v-else-if="!row.remotes?.length" class="chip"><span class="dot" />未关联</span>
                 <span v-else class="chip is-ok"><span class="dot" />正常</span>
               </template>
             </el-table-column>
-            <el-table-column label="最近活动" width="120">
+            <el-table-column v-if="showActivityColumn" label="最近活动" width="120">
               <template #default="{ row }">
                 <span class="cell-time">{{ timeAgo(row.last_run_at || row.updated_at) }}</span>
               </template>
@@ -449,6 +497,7 @@ onHotkey('new-project', openAdd)
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item command="finder">打开目录</el-dropdown-item>
+                        <el-dropdown-item command="rename">改名</el-dropdown-item>
                         <el-dropdown-item command="remove" divided>删除项目</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
@@ -522,6 +571,7 @@ onHotkey('new-project', openAdd)
                   <template #dropdown>
                     <el-dropdown-menu>
                       <el-dropdown-item command="finder">打开目录</el-dropdown-item>
+                      <el-dropdown-item command="rename">改名</el-dropdown-item>
                       <el-dropdown-item command="remove" divided>删除项目</el-dropdown-item>
                     </el-dropdown-menu>
                   </template>
@@ -539,6 +589,31 @@ onHotkey('new-project', openAdd)
     </div>
 
     <ConsolePanel ref="consolePanelRef" />
+
+    <el-dialog
+      v-model="renameDialogVisible"
+      title="修改中文名称"
+      width="420"
+      :close-on-click-modal="!renameSaving"
+      :close-on-press-escape="!renameSaving"
+      :show-close="!renameSaving"
+    >
+      <el-form label-position="top" @submit.prevent="saveRename">
+        <el-form-item label="中文名称">
+          <el-input
+            v-model="renameInput"
+            placeholder="请输入项目中文名称"
+            :disabled="renameSaving"
+            clearable
+            @keyup.enter="saveRename"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button :disabled="renameSaving" @click="renameDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="renameSaving" @click="saveRename">保存</el-button>
+      </template>
+    </el-dialog>
 
     <AddProjectDialog
       v-model:visible="addDialogVisible"
@@ -566,6 +641,54 @@ onHotkey('new-project', openAdd)
 </template>
 
 <style scoped>
+.project-list-page {
+  box-sizing: border-box;
+  min-height: 0;
+  padding-bottom: 16px;
+}
+.project-list-page :deep(.page-head) {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+}
+.project-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin-bottom: 12px;
+  padding: 8px 0;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: var(--ph-radius-md);
+}
+.project-stats :deep(.stat-card) {
+  gap: 10px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+.project-stats :deep(.stat-card + .stat-card) {
+  border-left: 1px solid var(--el-border-color-lighter);
+}
+.project-stats :deep(.stat-icon) {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+.project-stats :deep(.stat-body) {
+  flex: 1;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.project-stats :deep(.stat-num) {
+  font-size: 20px;
+}
+.filter-bar {
+  margin-bottom: 12px;
+}
 .search-input {
   width: 300px;
 }
@@ -575,8 +698,40 @@ onHotkey('new-project', openAdd)
 .table-scroll,
 .card-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding-bottom: 40px;
+  padding-bottom: 0;
+}
+.table-scroll.is-ungrouped {
+  display: flex;
+  overflow: hidden;
+}
+.is-ungrouped .table-card {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  margin-bottom: 0;
+}
+.is-ungrouped .table-card :deep(.el-card__body) {
+  height: 100%;
+  padding: 0;
+}
+@media (max-width: 900px) {
+  .project-stats :deep(.stat-card) {
+    gap: 6px;
+    padding: 0 8px;
+  }
+  .project-stats :deep(.stat-icon) {
+    display: none;
+  }
+  .project-list-page :deep(.head-actions) {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .search-input {
+    width: min(300px, 100%);
+  }
 }
 .group-head {
   display: flex;
@@ -623,13 +778,16 @@ onHotkey('new-project', openAdd)
   color: var(--el-text-color-secondary);
   white-space: nowrap;
 }
-.proj-path {
+.cell-language {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.project-path-text {
   font-size: 12px;
   color: var(--el-text-color-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 300px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .cell-remote {
   display: flex;

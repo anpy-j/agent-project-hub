@@ -32,8 +32,13 @@ import type {
 import type { DeploymentAPI } from '../types/deployment'
 
 export interface ProjectHubAPI {
+  gitAuth: {
+    snapshot: () => Promise<import('../types/git-auth').GitAuthSnapshot>
+    test: (data: { platform: string; url?: string }) => Promise<import('../types/git-auth').GitAuthResult>
+  }
   deployment: DeploymentAPI
   project: {
+    clone: (data: { url: string; parent: string; directory: string }) => Promise<string>
     list: (workspaceId?: string) => Promise<Project[]>
     get: (id: string) => Promise<Project | null>
     detail: (id: string) => Promise<Project & { git: GitSummary; history: TaskHistory[] }>
@@ -148,4 +153,3 @@ export interface ProjectHubAPI {
     clean: (targets: CleanExecutionTarget[]) => Promise<CleanExecutionResult>
   }
 }
-

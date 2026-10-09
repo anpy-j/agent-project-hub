@@ -2,6 +2,8 @@ import { ipcMain, shell, dialog, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { workspaceRepo, projectRepo, remoteRepo, taskRepo } from '../db/repositories'
 import { detectProject } from '../services/detector.service'
+import { cloneProject } from '../services/git-clone.service'
+import { gitAuthSnapshot, testGitAuth } from '../services/git-auth.service'
 import { suggestCommands, resolveBuildCommand } from '../strategies/project-commands'
 import { runtimeService } from '../services/runtime.service'
 import { runnerService, getMainWindowSender } from '../services/runner.service'
@@ -98,6 +100,11 @@ export function registerIpcHandlers(): void {
     return { ...project, git, history }
   })
   ipcMain.handle('project:detect', (_e, path: string) => detectProject(path))
+  ipcMain.handle('gitAuth:snapshot', () => gitAuthSnapshot())
+  ipcMain.handle('gitAuth:test', (_e, data: { platform: string; url?: string }) => testGitAuth(data))
+  ipcMain.handle('project:clone', (_e, data: { url: string; parent: string; directory: string }) =>
+    cloneProject(data.url, data.parent, data.directory)
+  )
   ipcMain.handle('project:buildCommand', (_e, id: string) => {
     const project = projectRepo.get(id)
     if (!project) throw new Error('项目不存在')
@@ -351,4 +358,3 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('diskCleaner:analyze', () => diskCleanerService.analyzeDisk())
   ipcMain.handle('diskCleaner:clean', (_e, targets: CleanExecutionTarget[]) => diskCleanerService.executeClean(targets))
 }
-
