@@ -17,14 +17,25 @@
     "test:delivery": "node --import tsx --test tests/deployment.test.ts",
     "test:delivery-ui": "npm run build && node tests/run-electron-delivery-smoke.cjs",
     "test:skills": "node --import tsx --test tests/skills.test.ts",
-    "test:skills-ui": "npm run build && node tests/run-electron-skills-smoke.cjs"
+    "test:skills-ui": "npm run build && node tests/run-electron-skills-smoke.cjs",
+    "test:agent": "node --import tsx --test tests/agent-protocol.test.ts",
+    "test:agent-ui": "npm run build && node tests/run-electron-agent-smoke.cjs",
+    "test:build-targets": "npm run build && node tests/run-build-targets.cjs",
+    "test:openclaw": "node --import tsx --test tests/openclaw-protocol.test.ts tests/openclaw-http.test.ts",
+    "test:openclaw-ui": "npm run build && node tests/run-electron-openclaw-smoke.cjs",
+    "test:library": "node --import tsx --test tests/library-source.test.ts tests/ragflow-client.test.ts",
+    "test:library-ui": "npm run build && node tests/run-electron-library-smoke.cjs",
+    "test:startup": "electron-vite build --mode development && node tests/run-electron-startup-smoke.cjs && npm run build && node tests/run-electron-startup-smoke.cjs"
   },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "better-sqlite3": "^11.3.0",
     "electron-log": "^5.1.7",
     "fflate": "^0.8.3",
+    "linkedom": "^0.18.13",
     "markdown-it": "^14.3.2",
     "ssh2": "^1.17.0",
+    "ws": "^8.22.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
@@ -35,6 +46,7 @@
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^22.5.0",
     "@types/ssh2": "^1.15.6",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-vue": "^5.1.2",
     "@vue/tsconfig": "^0.5.1",
     "electron": "^31.3.1",

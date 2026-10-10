@@ -1,13 +1,15 @@
-import { spawn, execFile } from 'child_process'
+import { spawn, execFile, execFileSync } from 'child_process'
 import type { ChildProcess } from 'child_process'
 import { stopProcessTree, stopProcessTreeSync } from './process-tree'
 import { app, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { mkdirSync, appendFileSync, existsSync, readFileSync } from 'fs'
 import type { TaskHistory, LogChunk, TaskStat, ProjectArtifact } from '../../src/types'
 import { projectRepo } from '../db/repositories'
 import { resolveRunCommand, resolveBuildCommand, findArtifacts } from '../strategies/project-commands'
+import { listBuildTargets, projectChild, buildEnvironment } from './build-targets'
+import { flutterEnvironment, isFlutter } from './flutter-environment'
 import { notify } from './notify.service'
 import { getDb } from '../db'
 
@@ -39,44 +41,87 @@ const RESTART_DELAY_MS = 3000
 
 class RunnerService {
   private running = new Map<string, RunningTask>()
+  private checkingBuilds = new Set<string>()
 
   async start(projectId: string, sender: Sender): Promise<string> {
     const project = projectRepo.get(projectId)
     if (!project) throw new Error(`项目不存在: ${projectId}`)
     const cmd = resolveRunCommand(project)
+    if (isFlutter(cmd.cwd)) {
+      const target = listBuildTargets(project).find(t => projectChild(project.path, t.directory) === cmd.cwd && (t.flutterSdk || t.javaHome || t.androidSdk))
+      const { report, env } = await flutterEnvironment(cmd.cwd, target, false, true)
+      if (report.errors.length) throw new Error(report.errors.join('\n'))
+      cmd.env = env; cmd.display = `Flutter ${report.version} · ${report.sdk}\n${cmd.display}`
+    }
     return this.spawnTask(projectId, cmd, 'run', sender)
   }
 
   async startCustom(
     projectId: string,
     input: { bin: string; args: string[]; display?: string },
-    sender: Sender
+    sender: Sender,
+    metadata: Pick<TaskHistory, 'build_target_id' | 'build_snapshot' | 'source_revision'> = {}
   ): Promise<string> {
     const project = projectRepo.get(projectId)
     if (!project) throw new Error(`项目不存在: ${projectId}`)
     const display = input.display || [input.bin, ...input.args].join(' ')
+    let environment = { ...process.env }
+    if (isFlutter(project.path) && /\bflutter\b/.test(display)) {
+      const target = listBuildTargets(project).find(t => projectChild(project.path, t.directory) === project.path && (t.flutterSdk || t.javaHome || t.androidSdk))
+      const { report, env } = await flutterEnvironment(project.path, target, false, true)
+      if (report.errors.length) throw new Error(report.errors.join('\n'))
+      environment = env
+    }
     return this.spawnTask(
       projectId,
-      { bin: input.bin, args: input.args, env: { ...process.env }, cwd: project.path, display },
+      { bin: input.bin, args: input.args, env: environment, cwd: project.path, display },
       'run',
       sender
     )
   }
 
   /** 打包 / 构建：与运行走同一条任务链路（task_history.type = 'build'） */
-  async startBuild(projectId: string, sender: Sender): Promise<string> {
+  async startBuild(projectId: string, sender: Sender, targetId?: string): Promise<string> {
     const project = projectRepo.get(projectId)
     if (!project) throw new Error(`项目不存在: ${projectId}`)
-    const cmd = resolveBuildCommand(project)
-    return this.spawnTask(projectId, cmd, 'build', sender)
+    if (this.checkingBuilds.has(projectId) || [...this.running.values()].some(e => e.task.project_id === projectId && e.task.type === 'build')) throw new Error('该项目已有构建正在进行')
+    this.checkingBuilds.add(projectId)
+    try {
+    const target = targetId ? listBuildTargets(project).find(t => t.id === targetId) : undefined
+    if (targetId && !target) throw new Error('构建目标不存在')
+    if (target && target.platform !== 'any' && target.platform !== process.platform) throw new Error('请在目标平台的机器上执行此构建')
+    const cmd = target ? {
+      bin: target.commands.map(c => `(${c})`).join(' && '), args: [],
+      cwd: projectChild(project.path, target.directory), env: buildEnvironment(target),
+      display: `[${target.name}]${target.flutterSdk ? ` Flutter SDK: ${target.flutterSdk}\n` : ' '} ${target.commands.join(' && ')}`
+    } : resolveBuildCommand(project)
+    if (isFlutter(cmd.cwd)) {
+      const { report, env } = await flutterEnvironment(cmd.cwd, target, /\b(apk|appbundle)\b/.test(cmd.display), true)
+      if (report.errors.length) throw new Error('构建前检查未通过：\n' + report.errors.join('\n'))
+      cmd.env = env; cmd.display = `Flutter ${report.version} · ${report.source}\nSDK: ${report.sdk}\nGradle Java ${report.javaVersion}: ${report.javaHome || 'Flutter 自动选择'}\nAndroid SDK: ${report.androidSdk || '未指定'}\n${report.warnings.join('\n')}\n${cmd.display}`
+    }
+    let revision: string | null = null
+    try {
+      const hash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: cmd.cwd, encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+      const dirty = execFileSync('git', ['status', '--porcelain'], { cwd: cmd.cwd, encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+      revision = hash + (dirty ? ' (含未提交修改)' : '')
+    } catch { /* 非 Git 项目 */ }
+    return await this.spawnTask(projectId, cmd, 'build', sender, {
+      build_target_id: target?.id || null,
+      build_snapshot: target ? JSON.stringify(target) : null,
+      source_revision: revision
+    })
+    } finally { this.checkingBuilds.delete(projectId) }
   }
 
   /** 实时探测构建产物目录（不落库，避免产物变化后数据过期） */
-  artifacts(projectId: string): ProjectArtifact[] {
+  artifacts(projectId: string, targetId?: string): ProjectArtifact[] {
     const project = projectRepo.get(projectId)
     if (!project) return []
-    return findArtifacts(project).map((dir) => ({
-      name: dir.split('/').filter(Boolean).pop() || dir,
+    const target = targetId ? listBuildTargets(project).find(t => t.id === targetId) : undefined
+    const paths = target ? target.artifactPaths.map(path => projectChild(projectChild(project.path, target.directory), path)).filter(existsSync) : findArtifacts(project)
+    return paths.map((dir) => ({
+      name: basename(dir) || dir,
       path: dir
     }))
   }
@@ -96,7 +141,8 @@ class RunnerService {
     projectId: string,
     cmd: SpawnCommand,
     type: TaskHistory['type'],
-    sender: Sender
+    sender: Sender,
+    metadata: Pick<TaskHistory, 'build_target_id' | 'build_snapshot' | 'source_revision'> = {}
   ): Promise<string> {
     if (type === 'run' && [...this.running.values()].some(e => e.task.project_id === projectId && e.task.type === 'run')) {
       throw new Error('该项目仍在运行或停止中，请等待退出后再启动')
@@ -105,6 +151,7 @@ class RunnerService {
     const logPath = this.ensureLogPath(taskId)
 
     const task: TaskHistory = {
+      build_target_id: null, build_snapshot: null, source_revision: null, ...metadata,
       id: taskId,
       project_id: projectId,
       type,
@@ -126,7 +173,7 @@ class RunnerService {
       logPath,
       cmd,
       sender,
-      autoRestart: this.isAutoRestartEnabled(projectId),
+      autoRestart: type === 'run' && this.isAutoRestartEnabled(projectId),
       attempt: 0,
       userStopped: false,
       restartTimer: null
@@ -405,8 +452,8 @@ class RunnerService {
   private persistTask(task: TaskHistory): void {
     getDb()
       .prepare(
-        `INSERT INTO task_history (id, project_id, type, status, command, log_path, pid, started_at)
-         VALUES (@id, @project_id, @type, @status, @command, @log_path, @pid, @started_at)`
+        `INSERT INTO task_history (id, project_id, type, status, command, log_path, pid, started_at, build_target_id, build_snapshot, source_revision)
+         VALUES (@id, @project_id, @type, @status, @command, @log_path, @pid, @started_at, @build_target_id, @build_snapshot, @source_revision)`
       )
       .run(task)
   }

@@ -152,3 +152,8 @@ INSERT OR IGNORE INTO workspace (id, name, kind, icon, sort_order) VALUES
   ('ws-personal', '个人', 'personal', 'User', 0),
   ('ws-company',  '公司', 'company',  'OfficeBuilding', 1);
 `
+
+export const BUILD_TARGET_SCHEMA = `CREATE TABLE IF NOT EXISTS build_targets (
+  project_id TEXT PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
+  targets TEXT NOT NULL
+)`

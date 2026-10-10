@@ -184,7 +184,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="page page-scroll disk-cleaner-view">
+  <div class="disk-cleaner-layout">
+    <div class="page page-scroll disk-cleaner-view">
     <PageHeader
       title="AI 磁盘管家"
       subtitle="基于 AI 语义感知的大头文件挖掘、智能分级诊断与安全极速瘦身"
@@ -196,7 +197,7 @@ onMounted(() => {
         <div class="drive-header">
           <div class="drive-title">
             <el-icon class="drive-icon"><Coin /></el-icon>
-            <span class="drive-letter">{{ d.drive }} 盘</span>
+            <span class="drive-letter" :title="d.drive">{{ d.label || `${d.drive} 盘` }}</span>
           </div>
           <el-tag
             :type="d.usedPercent > 90 ? 'danger' : d.usedPercent > 75 ? 'warning' : 'success'"
@@ -206,6 +207,8 @@ onMounted(() => {
             {{ d.usedPercent > 90 ? '严重告急' : d.usedPercent > 75 ? '空间偏紧' : '容量健康' }}
           </el-tag>
         </div>
+
+        <div class="drive-path" :title="d.drive">{{ d.drive }}</div>
 
         <div class="drive-stat">
           <div class="stat-main">
@@ -375,7 +378,9 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 4. 吸底清理控制条 -->
+    </div>
+
+    <!-- 4. 独立底部清理控制条 -->
     <div v-if="selectedCount > 0" class="floating-action-bar">
       <div class="bar-summary">
         <span class="bar-stat">已勾选 <strong>{{ selectedCount }}</strong> 项</span>
@@ -405,8 +410,22 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.disk-cleaner-layout {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .disk-cleaner-view {
-  padding-bottom: 90px;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.disk-cleaner-view > * {
+  flex-shrink: 0;
 }
 
 /* 磁盘看板 */
@@ -436,6 +455,23 @@ onMounted(() => {
   gap: 8px;
   font-weight: 600;
   font-size: 16px;
+}
+
+.drive-title {
+  min-width: 0;
+}
+
+.drive-letter {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drive-path {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  overflow-wrap: anywhere;
+  margin-bottom: 12px;
 }
 
 .drive-icon {
@@ -654,12 +690,10 @@ onMounted(() => {
   font-size: 13px;
 }
 
-/* 吸底操作栏 */
+/* 操作栏占据独立空间，不覆盖滚动列表 */
 .floating-action-bar {
-  position: fixed;
-  bottom: 24px;
-  left: 260px;
-  right: 24px;
+  flex-shrink: 0;
+  margin: 12px 26px 24px;
   background: rgba(30, 30, 36, 0.95);
   backdrop-filter: blur(12px);
   border: 1px solid var(--border-color, #3b3b4a);
@@ -669,23 +703,13 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  animation: slideUp 0.25s ease-out;
-}
-
-@keyframes slideUp {
-  from {
-    transform: translateY(30px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  flex-wrap: wrap;
+  gap: 14px;
 }
 
 .bar-summary {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   font-size: 14px;
@@ -702,6 +726,7 @@ onMounted(() => {
 
 .bar-controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
 }

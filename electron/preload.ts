@@ -9,10 +9,55 @@ function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T> {
 
 
 const api: ProjectHubAPI = {
+  library: {
+    list: filter => invoke('library:list', filter), detail: id => invoke('library:detail', id),
+    capture: input => invoke('library:capture', input), importFile: input => invoke('library:importFile', input),
+    update: (id, patch) => invoke('library:update', id, patch), archive: (id, archived) => invoke('library:archive', id, archived),
+    process: (id, action) => invoke('library:process', id, action), browse: id => invoke('library:browse', id), supply: (id, content) => invoke('library:supply', id, content),
+    refreshSync: id => invoke('library:refreshSync', id), source: (id, sourceId) => invoke('library:source', id, sourceId),
+    ask: (id, question) => invoke('library:ask', id, question), export: id => invoke('library:export', id),
+    onChanged: callback => {
+      const handler = (_event: unknown, resource: import('../src/types/library').LibraryResource) => callback(resource)
+      ipcRenderer.on('library:changed', handler)
+      return () => ipcRenderer.removeListener('library:changed', handler)
+    }
+  },
+  ragflow: {
+    getConfig: () => invoke('ragflow:getConfig'),
+    saveConfig: input => invoke('ragflow:saveConfig', input),
+    test: input => invoke('ragflow:test', input),
+    documents: () => invoke('ragflow:documents'),
+    open: () => invoke('ragflow:open')
+  },
+  openclaw: {
+    models: (id, selection) => invoke('openclaw:models', id, selection),
+    list: () => invoke('openclaw:list'), save: input => invoke('openclaw:save', input),
+    remove: id => invoke('openclaw:remove', id), discover: () => invoke('openclaw:discover'),
+    connections: () => invoke('openclaw:connections'), connect: id => invoke('openclaw:connect', id),
+    disconnect: id => invoke('openclaw:disconnect', id), request: (id, method, params) => invoke('openclaw:request', id, method, params),
+    service: (id, action) => invoke('openclaw:service', id, action),
+    onEvent: callback => {
+      const handler = (_event: unknown, value: import('../src/types/openclaw').OpenClawEvent) => callback(value)
+      ipcRenderer.on('openclaw:event', handler)
+      return () => ipcRenderer.removeListener('openclaw:event', handler)
+    }
+  },
+  agent: {
+    getConfig: () => invoke('agent:getConfig'), saveConfig: config => invoke('agent:saveConfig', config),
+    test: config => invoke('agent:test', config), tasks: () => invoke('agent:tasks'),
+    start: input => invoke('agent:start', input), confirm: (id, approve) => invoke('agent:confirm', id, approve),
+    cancel: id => invoke('agent:cancel', id),
+    onTask: callback => {
+      const handler = (_e: unknown, task: import('../src/types/agent').AgentTask) => callback(task)
+      ipcRenderer.on('agent:task', handler)
+      return () => ipcRenderer.removeListener('agent:task', handler)
+    }
+  },
   skills: {
     snapshot: () => invoke('skills:snapshot'),
     preview: input => invoke('skills:preview', input),
     scan: projectId => invoke('skills:scan', projectId),
+    describeCandidates: skills => invoke('skills:describeCandidates', skills),
     import: (token, ids) => invoke('skills:import', token, ids),
     discard: token => invoke('skills:discard', token),
     readFile: (id, path) => invoke('skills:readFile', id, path),
@@ -65,6 +110,9 @@ const api: ProjectHubAPI = {
     remove: (id: string) => invoke('project:remove', id),
     syncRemotes: (id: string) => invoke('project:syncRemotes', id),
     detect: (path: string) => invoke('project:detect', path),
+    buildTargets: (id: string) => invoke('project:buildTargets', id),
+    flutterEnvironment: (id: string, target: import('../src/types').BuildTarget) => invoke('project:flutterEnvironment', id, target),
+    saveBuildTargets: (id: string, targets: import('../src/types').BuildTarget[]) => invoke('project:saveBuildTargets', id, targets),
     buildCommand: (id: string) => invoke('project:buildCommand', id),
     runCommands: (id: string) => invoke('project:runCommands', id),
     removeRunCommand: (id: string, cmd: string) => invoke('project:runCommands:remove', id, cmd),
@@ -108,8 +156,8 @@ const api: ProjectHubAPI = {
     startCustom: (projectId: string, cmd: { bin: string; args: string[]; display?: string }) =>
       invoke('runner:startCustom', projectId, cmd),
     probeExternal: (projectId: string) => ipcRenderer.invoke('runner:probeExternal', projectId),
-    startBuild: (projectId: string) => invoke('runner:startBuild', projectId),
-    artifacts: (projectId: string) => invoke('runner:artifacts', projectId),
+    startBuild: (projectId: string, targetId?: string) => invoke('runner:startBuild', projectId, targetId),
+    artifacts: (projectId: string, targetId?: string) => invoke('runner:artifacts', projectId, targetId),
     stop: (taskId: string) => invoke('runner:stop', taskId),
     listRunning: () => invoke('runner:listRunning'),
     stats: () => invoke('runner:stats'),

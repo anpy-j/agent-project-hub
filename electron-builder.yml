@@ -6,6 +6,8 @@ files:
   - out/**/*
   - package.json
 extraResources:
+  - from: .packaging-data/project-hub.db
+    to: data/project-hub.db
   - from: resources/bundled-skills
     to: bundled-skills
     filter:
@@ -14,6 +16,7 @@ extraResources:
       - '!**/node_modules/**'
       - '!**/.env'
       - '!**/.env.*'
+beforePack: ./scripts/package-database.cjs
 asar: true
 win:
   target: nsis

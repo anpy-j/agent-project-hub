@@ -1,3 +1,9 @@
+import { registerLibraryIpc } from './ipc/library'
+import { libraryService } from './services/library.service'
+import { registerRagflowIpc } from './ipc/ragflow'
+import { registerOpenClawIpc } from './ipc/openclaw'
+import { openclawService } from './services/openclaw.service'
+import { registerAgentIpc } from './ipc/agent'
 import { app, BrowserWindow, shell, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -69,7 +75,12 @@ app.whenReady().then(async () => {
   getDb()
   runStartupMaintenance()
   registerIpcHandlers()
+  registerRagflowIpc()
+  registerLibraryIpc()
+  libraryService.init()
   registerDeploymentIpc()
+  registerOpenClawIpc()
+  registerAgentIpc()
   await registerSkillsIpc()
   runtimeService.scan()
   serviceManager.autostart()
@@ -87,6 +98,8 @@ app.on('before-quit', (event) => {
     dialog.showMessageBoxSync({ type: 'info', message: '镜像发布正在执行，请等待完成后再退出。' })
     return
   }
+  libraryService.cleanup()
+  openclawService.cleanup()
   runnerService.cleanupAll()
   serviceManager.cleanupAll()
   closeDb()

@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit as EditIcon, RefreshRight, Search, VideoPlay, VideoPause } from '@element-plus/icons-vue'
-import type { GitBranch, GitCommit, GitSummary, LogChunk, Project, ProjectArtifact, RunSuggestion, TaskHistory, TaskItem } from '../types'
+import type { BuildTarget, GitBranch, GitCommit, GitSummary, LogChunk, Project, ProjectArtifact, RunSuggestion, TaskHistory, TaskItem } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -46,7 +46,74 @@ const external = ref<{ running: boolean; processes: Array<{ pid: number; command
   processes: []
 })
 
-const buildCommand = ref('')
+const buildTargets = ref<BuildTarget[]>([])
+const selectedBuildTargetId = ref('')
+const selectedBuildTarget = computed(() => buildTargets.value.find(t => t.id === selectedBuildTargetId.value))
+const buildCommand = computed(() => selectedBuildTarget.value?.commands.join(' && ') || '')
+const buildEditorVisible = ref(false)
+const buildEditor = ref({ id: '', name: '', directory: '.', platform: 'any' as BuildTarget['platform'], commands: '', artifacts: '', image: '', flutterSdk: '', javaHome: '', androidSdk: '' })
+const savingBuildTarget = ref(false)
+function editBuildTarget(target?: BuildTarget) {
+  buildEditor.value = target ? { id: target.id, name: target.name, directory: target.directory, platform: target.platform, commands: target.commands.join('\n'), artifacts: target.artifactPaths.join('\n'), image: target.image || '', flutterSdk: target.flutterSdk || '', javaHome: target.javaHome || '', androidSdk: target.androidSdk || '' } : { id: '', name: '', directory: '.', platform: 'any', commands: '', artifacts: '', image: '', flutterSdk: '', javaHome: '', androidSdk: '' }
+  buildEditorVisible.value = true
+}
+function applyBuildTemplate(template: string) {
+  const presets: Record<string, { name: string; platform: BuildTarget['platform']; commands: string; artifacts: string; image?: string }> = {
+    electronWin: { name: 'Windows 安装包', platform: 'win32', commands: 'npm run build\nnpx electron-builder --win --publish never', artifacts: 'dist' },
+    electronMac: { name: 'macOS 安装包', platform: 'darwin', commands: 'npm run build\nnpx electron-builder --mac --publish never', artifacts: 'dist' },
+    flutterWin: { name: 'Flutter Windows', platform: 'win32', commands: 'flutter build windows --release', artifacts: 'build/windows' },
+    flutterMac: { name: 'Flutter macOS', platform: 'darwin', commands: 'flutter build macos --release', artifacts: 'build/macos/Build/Products/Release' },
+    apk: { name: 'Android APK', platform: 'any', commands: 'flutter build apk --release', artifacts: 'build/app/outputs/flutter-apk' },
+    aab: { name: 'Android App Bundle', platform: 'any', commands: 'flutter build appbundle --release', artifacts: 'build/app/outputs/bundle/release' },
+    ipa: { name: 'iOS IPA', platform: 'darwin', commands: 'flutter build ipa --release', artifacts: 'build/ios/ipa' },
+    docker: { name: 'Docker 构建', platform: 'any', commands: 'docker build --platform linux/amd64 -f Dockerfile -t registry.example.com/team/service:latest .', artifacts: '', image: 'registry.example.com/team/service:latest' },
+    dockerPush: { name: 'Docker 构建并上传', platform: 'any', commands: 'docker build --platform linux/amd64 -f Dockerfile -t registry.example.com/team/service:latest .\ndocker push registry.example.com/team/service:latest', artifacts: '', image: 'registry.example.com/team/service:latest' }
+  }
+  Object.assign(buildEditor.value, presets[template])
+}
+const flutterCheck = ref<Awaited<ReturnType<typeof window.api.project.flutterEnvironment>> | null>(null)
+const checkingFlutter = ref(false)
+async function checkFlutterEnvironment() {
+  if (!selectedBuildTarget.value) return
+  checkingFlutter.value = true; flutterCheck.value = null
+  try { flutterCheck.value = await window.api.project.flutterEnvironment(projectId, JSON.parse(JSON.stringify(selectedBuildTarget.value))) }
+  catch(e) { ElMessage.error((e as Error).message) }
+  finally { checkingFlutter.value = false }
+}
+async function pickBuildDirectory(field: 'javaHome' | 'androidSdk') {
+  const directory = await window.api.system.pickDirectory()
+  if (directory) buildEditor.value[field] = directory
+}
+async function pickFlutterSdk() {
+  const directory = await window.api.system.pickDirectory()
+  if (directory) buildEditor.value.flutterSdk = directory
+}
+async function saveBuildTarget() {
+  savingBuildTarget.value = true
+  try {
+    const form = buildEditor.value
+    const target: BuildTarget = { id: form.id || crypto.randomUUID(), name: form.name.trim(), directory: form.directory.trim() || '.', platform: form.platform, commands: form.commands.split('\n').map(c => c.trim()).filter(Boolean), artifactPaths: form.artifacts.split('\n').map(c => c.trim()).filter(Boolean), image: form.image.trim() || undefined, flutterSdk: form.flutterSdk.trim() || undefined, javaHome: form.javaHome.trim() || undefined, androidSdk: form.androidSdk.trim() || undefined }
+    if (target.flutterSdk && target.commands.some(c => /\bflutter\b/.test(c))) {
+      const report = await window.api.project.flutterEnvironment(projectId, JSON.parse(JSON.stringify(target)))
+      target.flutterVersion = report.version
+    }
+    const targets = [...buildTargets.value.filter(t => t.id !== target.id), target]
+    await window.api.project.saveBuildTargets(projectId, JSON.parse(JSON.stringify(targets)))
+    selectedBuildTargetId.value = target.id
+    buildEditorVisible.value = false
+    await loadBuildInfo()
+    ElMessage.success('构建目标已保存')
+  } catch (e) { ElMessage.error((e as Error).message) }
+  finally { savingBuildTarget.value = false }
+}
+async function removeBuildTarget() {
+  if (!selectedBuildTarget.value) return
+  try {
+    await ElMessageBox.confirm(`删除构建目标“${selectedBuildTarget.value.name}”？`, '删除目标', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+    await window.api.project.saveBuildTargets(projectId, JSON.parse(JSON.stringify(buildTargets.value.filter(t => t.id !== selectedBuildTargetId.value))))
+    await loadBuildInfo()
+  } catch (e) { if (e instanceof Error) ElMessage.error(e.message) }
+}
 const buildTask = ref<TaskHistory | null>(null)
 const buildTaskId = ref('')
 const buildLogs = ref<string[]>([])
@@ -454,18 +521,28 @@ function onRunStatus(task: TaskHistory) {
   history.value = [task, ...history.value.filter((t) => t.id !== task.id)].slice(0, 20)
 }
 
+function askAgentBuild() {
+  window.dispatchEvent(new CustomEvent('project-hub:agent-context', { detail: { projectId, open: true, prompt: selectedBuildTarget.value ? `构建目标“${selectedBuildTarget.value.name}”（标识 ${selectedBuildTarget.value.id}），完成后列出产物。` : '查看构建目标并构建当前项目，列出产物。' } }))
+}
 /* ---------- 打包 / 构建 ---------- */
 async function loadBuildInfo() {
   try {
-    buildCommand.value = await window.api.project.buildCommand(projectId)
-  } catch {
-    buildCommand.value = ''
+    buildTargets.value = await window.api.project.buildTargets(projectId)
+    if (!buildTargets.value.some(t => t.id === selectedBuildTargetId.value)) selectedBuildTargetId.value = buildTargets.value[0]?.id || ''
+    await loadTargetArtifacts()
+  } catch (e) { ElMessage.error(`加载构建配置失败：${(e as Error).message}`) }
+}
+async function loadTargetArtifacts() {
+  artifacts.value = []
+  if (selectedBuildTargetId.value) {
+    try { artifacts.value = await window.api.runner.artifacts(projectId, selectedBuildTargetId.value) }
+    catch (e) { ElMessage.error(`加载产物失败：${(e as Error).message}`) }
   }
-  try {
-    artifacts.value = await window.api.runner.artifacts(projectId)
-  } catch {
-    artifacts.value = []
-  }
+}
+
+async function stopBuild() {
+  try { await window.api.runner.stop(buildTaskId.value) }
+  catch (e) { ElMessage.error((e as Error).message) }
 }
 
 async function startBuild() {
@@ -474,7 +551,7 @@ async function startBuild() {
     return
   }
   try {
-    const taskId = await window.api.runner.startBuild(projectId)
+    const taskId = await window.api.runner.startBuild(projectId, selectedBuildTargetId.value)
     buildTaskId.value = taskId
     buildLogs.value = [`$ ${buildCommand.value}`, '']
     buildTask.value = {
@@ -757,13 +834,18 @@ onMounted(async () => {
   loadRunState()
   loadTasks()
   loadAutoRestart()
-  loadBuildInfo()
+  await loadBuildInfo()
   try {
     const list = await window.api.runner.listRunning()
     const building = list.find((t) => t.project_id === projectId && t.type === 'build')
     if (building) {
       buildTask.value = building
       buildTaskId.value = building.id
+      if (building.build_target_id && buildTargets.value.some(t => t.id === building.build_target_id)) {
+        selectedBuildTargetId.value = building.build_target_id
+        await loadTargetArtifacts()
+      }
+      buildLogs.value = [await window.api.task.readLog(building.id)]
     }
   } catch {
     // ignore
@@ -803,7 +885,8 @@ onMounted(async () => {
           <span v-else-if="external.running" class="chip is-info"><span class="dot" />外部进程</span>
           <span class="head-spacer" />
           <el-button size="small" type="primary" plain @click="router.push({ path: '/delivery', query: { project: projectId } })"><el-icon><UploadFilled /></el-icon>镜像发布</el-button>
-          <el-button size="small" plain @click="router.push({ path: '/ai/assistant', query: { projectId } })"><el-icon><MagicStick /></el-icon>AI 技能助手</el-button>
+          <el-button size="small" plain @click="router.push({ path: '/ai/library', query: { projectId } })"><el-icon><Reading /></el-icon>项目资料</el-button>
+          <el-button size="small" plain @click="router.push({ path: '/ai/skills', query: { projectId } })"><el-icon><MagicStick /></el-icon>Skills 管理</el-button>
           <el-button size="small" @click="openFolder()"><el-icon><FolderOpened /></el-icon>目录</el-button>
           <el-button size="small" @click="recognize" :loading="busy === 'sync'"><el-icon><Search /></el-icon>识别</el-button>
         </div>
@@ -1085,7 +1168,27 @@ onMounted(async () => {
 
           <el-card class="block">
             <template #header><b>打包与产物</b></template>
+            <div class="build-row" style="margin-bottom: 10px">
+              <el-select v-model="selectedBuildTargetId" placeholder="选择构建目标" :disabled="buildTask?.status === 'running'" @change="flutterCheck = null; loadTargetArtifacts()">
+                <el-option v-for="t in buildTargets" :key="t.id" :value="t.id" :label="`${t.name} · ${t.directory}`" />
+              </el-select>
+              <el-button size="small" :disabled="buildTask?.status === 'running'" @click="editBuildTarget()">新增目标</el-button>
+              <el-button size="small" :disabled="!selectedBuildTarget || buildTask?.status === 'running'" @click="editBuildTarget(selectedBuildTarget)">编辑</el-button>
+              <el-button size="small" text type="danger" :disabled="!selectedBuildTarget || buildTask?.status === 'running'" @click="removeBuildTarget">删除</el-button>
+            </div>
+            <div v-if="selectedBuildTarget" class="tip-line">工作目录：{{ selectedBuildTarget.directory }} · 执行平台：{{ { any: '不限', darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[selectedBuildTarget.platform] }}</div>
+            <el-button v-if="selectedBuildTarget?.commands.some(c => c.includes('flutter'))" size="small" :loading="checkingFlutter" @click="checkFlutterEnvironment">检查 Flutter 构建环境</el-button>
+            <div v-if="flutterCheck" class="tip-line">
+              <div>Flutter {{ flutterCheck.version }} · {{ flutterCheck.source }} · {{ flutterCheck.sdk }}</div>
+              <div>Gradle Java {{ flutterCheck.javaVersion }}：{{ flutterCheck.javaHome || 'Flutter 自动选择' }} · Android SDK：{{ flutterCheck.androidSdk || '未指定' }}</div>
+              <div v-if="!flutterCheck.errors.length">静态检查通过；首次成功检查的环境会在运行或构建时保存。</div>
+              <div v-for="item in flutterCheck.errors" :key="item" style="color: var(--el-color-danger)">{{ item }}</div>
+              <div v-for="item in flutterCheck.warnings" :key="item">提示：{{ item }}</div>
+              <el-button v-if="flutterCheck.errors.length" size="small" @click="editBuildTarget(selectedBuildTarget)">选择兼容 SDK / 修改环境</el-button>
+            </div>
+            <div v-if="selectedBuildTarget?.flutterSdk" class="tip-line">Flutter SDK：{{ selectedBuildTarget.flutterSdk }} {{ selectedBuildTarget.flutterVersion ? '· 固定版本 ' + selectedBuildTarget.flutterVersion : '' }}</div>
             <div class="build-row">
+              <el-button size="small" @click="askAgentBuild">交给 Agent</el-button>
               <span class="cmd-text mono">{{ buildCommand || '未识别到构建命令' }}</span>
               <el-button
                 size="small"
@@ -1096,6 +1199,7 @@ onMounted(async () => {
               >
                 <el-icon><Box /></el-icon>打包
               </el-button>
+              <el-button v-if="buildTask?.status === 'running'" size="small" type="danger" plain @click="stopBuild">停止构建</el-button>
               <el-button size="small" text @click="loadBuildInfo">刷新产物</el-button>
             </div>
             <div v-if="buildLogs.length" ref="buildLogBoxRef" class="terminal log-box compact">
@@ -1108,10 +1212,36 @@ onMounted(async () => {
                   <span class="artifact-name mono" :title="a.name">{{ a.name }}</span>
                   <span class="artifact-path mono" :title="a.path">{{ a.path }}</span>
                 </div>
-                <el-button size="small" text type="primary" @click="openArtifact(a.path)">打开目录</el-button>
+                <el-button size="small" text type="primary" @click="openArtifact(a.path)">打开产物</el-button>
               </div>
             </div>
-            <div v-else class="tip-line">暂无构建产物（先执行一次打包）</div>
+            <div v-else class="tip-line">配置的产物路径尚不存在。目录列表可能包含以前构建的文件。</div>
+            <div v-if="selectedBuildTarget?.image" class="tip-line">镜像引用：{{ selectedBuildTarget.image }}（是否生成或上传请查看构建日志）</div>
+            <el-dialog v-model="buildEditorVisible" title="构建目标" width="650px">
+              <el-form label-width="100px">
+                <el-form-item label="填入模板">
+                  <el-select placeholder="选择后可自由修改" @change="applyBuildTemplate">
+                    <el-option v-for="option in [{ value: 'electronWin', label: 'Electron Windows' }, { value: 'electronMac', label: 'Electron macOS' }, { value: 'flutterWin', label: 'Flutter Windows' }, { value: 'flutterMac', label: 'Flutter macOS' }, { value: 'apk', label: 'Android APK' }, { value: 'aab', label: 'Android App Bundle' }, { value: 'ipa', label: 'iOS IPA' }, { value: 'docker', label: 'Docker 构建' }, { value: 'dockerPush', label: 'Docker 构建并上传' }]" :key="option.value" :value="option.value" :label="option.label" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="目标名称"><el-input v-model="buildEditor.name" placeholder="例如：后台服务 A / Docker" /></el-form-item>
+                <el-form-item label="子项目目录"><el-input v-model="buildEditor.directory" placeholder="相对项目根目录，例如 services/api" /></el-form-item>
+                <el-form-item label="执行平台"><el-select v-model="buildEditor.platform"><el-option label="不限" value="any" /><el-option label="macOS" value="darwin" /><el-option label="Windows" value="win32" /><el-option label="Linux" value="linux" /></el-select></el-form-item>
+                <el-form-item label="Flutter SDK">
+                  <el-input v-model="buildEditor.flutterSdk" placeholder="可选：Flutter 安装目录，留空使用终端环境" clearable>
+                    <template #append><el-button @click="pickFlutterSdk">选择目录</el-button></template>
+                  </el-input>
+                  <div class="tip-line">请选择包含 bin/flutter 的 Flutter 安装目录；保存时绑定该 SDK 当前版本。项目位置填写在“子项目目录”，例如 family-flutter。</div>
+                </el-form-item>
+                <el-form-item label="Gradle JDK"><el-input v-model="buildEditor.javaHome" placeholder="可选：Java 安装目录，留空自动识别" clearable><template #append><el-button @click="pickBuildDirectory('javaHome')">选择目录</el-button></template></el-input></el-form-item>
+                <el-form-item label="Android SDK"><el-input v-model="buildEditor.androidSdk" placeholder="可选：Android SDK 安装目录，留空读取项目配置" clearable><template #append><el-button @click="pickBuildDirectory('androidSdk')">选择目录</el-button></template></el-input></el-form-item>
+                <el-form-item label="构建步骤"><el-input v-model="buildEditor.commands" type="textarea" :rows="5" placeholder="每行一个步骤，依次执行；失败即停止" /></el-form-item>
+                <el-form-item label="产物路径"><el-input v-model="buildEditor.artifacts" type="textarea" :rows="2" placeholder="每行一个文件或目录，相对子项目目录；Docker 可留空" /></el-form-item>
+                <el-form-item label="镜像引用"><el-input v-model="buildEditor.image" placeholder="可选：仓库地址/镜像名:标签，与命令中保持一致" /></el-form-item>
+              </el-form>
+              <el-alert title="所有步骤在本机执行。Docker 上传使用本机已登录的仓库凭据，请修改模板中的镜像地址；需要签名的桌面或手机包须先配置对应工具和证书。" type="info" :closable="false" />
+              <template #footer><el-button @click="buildEditorVisible = false">取消</el-button><el-button type="primary" :loading="savingBuildTarget" @click="saveBuildTarget">保存</el-button></template>
+            </el-dialog>
           </el-card>
 
           <el-card class="block">
@@ -1124,6 +1254,7 @@ onMounted(async () => {
                 </template>
               </el-table-column>
               <el-table-column prop="command" label="命令" show-overflow-tooltip />
+              <el-table-column prop="source_revision" label="源码版本" width="150" show-overflow-tooltip />
               <el-table-column label="日志" width="70">
                 <template #default="{ row }">
                   <el-button size="small" text type="primary" @click="viewLog(row.id)">查看</el-button>

@@ -26,14 +26,25 @@ export function safeRelative(path: string): string {
   return segments.join('/')
 }
 
+// Tolerate CRCRLF from files converted between Windows and Unix more than once.
+function normalizeMetadataText(text: string): string { return text.replace(/^\uFEFF/, '').replace(/\r+\n/g, '\n').replace(/\r/g, '\n') }
+
 export function manifest(text: string, folderName: string): { name: string; title: string; description: string } {
+<<<<<<< HEAD
   const match = yamlText(text).replace(/^\uFEFF/, '').match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+=======
+  const match = normalizeMetadataText(text).match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+>>>>>>> 38ed9d4e6af051552ea9967c15bf0df835be8177
   if (!match) throw new Error('SKILL.md 缺少 YAML 元数据（name、description）')
   const metadata = parse(match[1], { maxAliasCount: 0 })
   const name = metadata?.name ?? folderName
   if (typeof name !== 'string' || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name) || name.length > 64) throw new Error('技能名称需要为 1–64 位小写字母、数字和短横线')
   if (typeof metadata.description !== 'string' || !metadata.description.trim() || metadata.description.length > 4096) throw new Error('技能 description 缺失或过长')
+<<<<<<< HEAD
   const title = yamlText(text).replace(/^\uFEFF/, '').slice(match[0].length).match(/^#\s+(.+)$/m)?.[1]?.trim() || name
+=======
+  const title = normalizeMetadataText(text).slice(match[0].length).match(/^#\s+(.+)$/m)?.[1]?.trim() || name
+>>>>>>> 38ed9d4e6af051552ea9967c15bf0df835be8177
   return { name, title, description: metadata.description.trim() }
 }
 
@@ -154,7 +165,11 @@ export function skillMetadata(root: string) {
   if (parsed.description.length > 1024) warnings.push('description 超过 OpenCode 的 1024 字符限制。')
   if (existsSync(join(root, 'agents', 'openai.yaml'))) {
     try {
+<<<<<<< HEAD
       const metadata = parse(yamlText(readSkillText(root, 'agents/openai.yaml')), { maxAliasCount: 0 })
+=======
+      const metadata = parse(normalizeMetadataText(readSkillText(root, 'agents/openai.yaml')), { maxAliasCount: 0 })
+>>>>>>> 38ed9d4e6af051552ea9967c15bf0df835be8177
       if (typeof metadata?.interface?.display_name === 'string') parsed.title = metadata.interface.display_name
       if (metadata?.dependencies) warnings.push('声明了工具依赖，安装文件不会自动安装 MCP 或其他外部工具。')
     } catch { warnings.push(OPENAI_YAML_WARNING) }

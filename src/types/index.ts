@@ -133,6 +133,9 @@ export interface Runtime {
 }
 
 export interface TaskHistory {
+  build_target_id?: string | null
+  build_snapshot?: string | null
+  source_revision?: string | null
   id: string
   project_id: string
   type: TaskType
@@ -320,3 +323,17 @@ export interface CleanExecutionResult {
   afterDrives: DiskDriveInfo[]
 }
 
+
+export interface BuildTarget {
+  flutterSdk?: string
+  flutterVersion?: string
+  javaHome?: string
+  androidSdk?: string
+  id: string
+  name: string
+  directory: string
+  platform: 'any' | 'darwin' | 'win32' | 'linux'
+  commands: string[]
+  artifactPaths: string[]
+  image?: string
+}

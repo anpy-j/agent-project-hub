@@ -248,19 +248,19 @@ export const serviceRepo = {
 }
 
 export const aiConfigRepo = {
-  get(): AiConfig {
+  get(id = 'default'): AiConfig {
     const row = getDb()
-      .prepare("SELECT provider, base_url, api_key, model FROM ai_config WHERE id = 'default'")
-      .get() as AiConfig | undefined
+      .prepare("SELECT provider, base_url, api_key, model FROM ai_config WHERE id = ?")
+      .get(id) as AiConfig | undefined
     return (
       row ?? { provider: 'ollama', base_url: 'http://localhost:11434/v1', api_key: '', model: '' }
     )
   },
-  save(data: AiConfig): AiConfig {
+  save(data: AiConfig, id = 'default'): AiConfig {
     getDb()
       .prepare(
         `INSERT INTO ai_config (id, provider, base_url, api_key, model)
-         VALUES ('default', @provider, @base_url, @api_key, @model)
+         VALUES (@id, @provider, @base_url, @api_key, @model)
          ON CONFLICT(id) DO UPDATE SET
            provider = excluded.provider,
            base_url = excluded.base_url,
@@ -269,11 +269,12 @@ export const aiConfigRepo = {
            updated_at = datetime('now')`
       )
       .run({
+        id,
         provider: data.provider,
         base_url: data.base_url ?? '',
         api_key: data.api_key ?? '',
         model: data.model ?? ''
       })
-    return this.get()
+    return this.get(id)
   }
 }
