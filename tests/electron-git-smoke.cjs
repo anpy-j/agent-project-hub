@@ -1,9 +1,12 @@
 const { app } = require('electron')
 const assert = require('node:assert/strict')
 const { join } = require('node:path')
-const { mkdirSync, writeFileSync } = require('node:fs')
+const { mkdirSync, writeFileSync, existsSync } = require('node:fs')
 const { execFileSync } = require('node:child_process')
 const fixture = process.env.PROJECT_HUB_GIT_TEST_DIR
+assert(fixture, 'Git smoke requires an isolated fixture')
+assert.equal(process.env.PROJECT_HUB_DB_DIR, join(fixture, 'database'), 'Git smoke must use its own database')
+assert.equal(process.env.PROJECT_HUB_GIT_SMOKE_DIR, fixture, 'Git smoke must disable user database migration')
 const local = join(fixture, 'local'), remote = join(fixture, 'remote.git')
 const git = args => execFileSync('git', args, { stdio: 'pipe' })
 mkdirSync(local)
@@ -34,6 +37,13 @@ app.on('browser-window-created', (_event, win) => {
         const workspaces = await window.api.workspace.list()
         return window.api.project.add({ workspace_id: workspaces[0].id, name: 'Git live test', path: ${JSON.stringify(local)} })
       })()`)
+      const databasePath = join(fixture, 'database', 'project-hub.db')
+      assert(existsSync(databasePath), 'Application must create the isolated test database')
+      const isolatedDb = new (require('better-sqlite3'))(databasePath, { readonly: true })
+      try {
+        assert.equal(isolatedDb.prepare('SELECT name FROM project WHERE id = ?').get(project.id)?.name, 'Git live test')
+        assert.equal(isolatedDb.prepare('SELECT COUNT(*) AS count FROM project').get().count, 1, 'Fixture must not import user projects')
+      } finally { isolatedDb.close() }
       await evaluate(`location.hash = ${JSON.stringify('#/projects/' + project.id)}`)
       await waitFor(`document.body.innerText.includes('未提交变更')`)
       await evaluate(`(() => {

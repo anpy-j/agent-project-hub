@@ -4,7 +4,10 @@ const { spawnSync } = require('node:child_process')
 const root = path.resolve(__dirname, '..')
 const temporary = fs.mkdtempSync(path.join(root, 'git-smoke-'))
 try {
-  const env = { ...process.env, PROJECT_HUB_GIT_TEST_DIR: temporary, PROJECT_HUB_GIT_TEST_ROOT: root }
+  const env = {
+    ...process.env, PROJECT_HUB_GIT_TEST_DIR: temporary, PROJECT_HUB_GIT_TEST_ROOT: root,
+    PROJECT_HUB_GIT_SMOKE_DIR: temporary, PROJECT_HUB_DB_DIR: path.join(temporary, 'database')
+  }
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ELECTRON_RENDERER_URL
   const result = spawnSync(process.env.PROJECT_HUB_TEST_ELECTRON || require('electron'), [path.join(__dirname, 'electron-git-smoke.cjs')], {
