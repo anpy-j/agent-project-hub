@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit as EditIcon, RefreshRight, Search, VideoPlay, VideoPause } from '@element-plus/icons-vue'
@@ -222,6 +222,22 @@ async function toggleAutoRestart(enabled: boolean | string | number) {
 
 const selectedChanges = ref<Set<string>>(new Set())
 const commitMessage = ref('')
+const changeGroups = computed(() => {
+  const changes = git.value?.changes || []
+  const conflicts = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'])
+  return [
+    {
+      key: 'staged', title: '已暂存', empty: '暂无已暂存变更',
+      files: changes.filter(f => !!f.indexStatus && f.indexStatus !== '?' && !conflicts.has(f.status))
+        .map(f => ({ ...f, displayStatus: f.indexStatus }))
+    },
+    {
+      key: 'unstaged', title: '未暂存', empty: '暂无未暂存变更',
+      files: changes.filter(f => !!f.worktreeStatus || conflicts.has(f.status))
+        .map(f => ({ ...f, displayStatus: conflicts.has(f.status) ? '冲突' : f.status === '??' ? '未跟踪' : f.worktreeStatus }))
+    }
+  ]
+})
 
 async function load() {
   loading.value = true
@@ -262,9 +278,63 @@ async function loadCommits() {
   }
 }
 
-async function refreshGit() {
-  await Promise.all([load(), loadCommits()])
+const gitRefreshing = ref(false)
+const gitWatchError = ref('')
+let gitRefreshPending = false
+let gitRefreshPromise: Promise<void> | undefined
+let disposed = false
+let stopGitEvents: (() => void) | undefined
+let gitWatchToken = ''
+
+function refreshGit(): Promise<void> {
+  gitRefreshPending = true
+  if (gitRefreshPromise) return gitRefreshPromise
+  gitRefreshing.value = true
+  gitRefreshPromise = (async () => {
+    while (gitRefreshPending && !disposed) {
+      gitRefreshPending = false
+      try {
+        const [summary, log, branchList] = await Promise.all([
+          window.api.git.summary(projectId), window.api.git.log(projectId, 20), window.api.git.branches(projectId)
+        ])
+        if (disposed) return
+        git.value = summary
+        commits.value = log
+        branches.value = branchList
+        selectedBranch.value = branchList.find(b => b.current)?.name || ''
+        const changedPaths = new Set(summary.changes.map(change => change.path))
+        selectedChanges.value = new Set([...selectedChanges.value].filter(path => changedPaths.has(path)))
+      } catch (error) {
+        if (!disposed) ElMessage.error(`刷新 Git 状态失败: ${(error as Error).message}`)
+      }
+    }
+  })().finally(() => { gitRefreshPromise = undefined; gitRefreshing.value = false })
+  return gitRefreshPromise
 }
+
+function onGitFocus() { void refreshGit() }
+function onGitVisible() { if (document.visibilityState === 'visible') void refreshGit() }
+function startGitWatching() {
+  gitWatchToken = crypto.randomUUID()
+  stopGitEvents = window.api.git.onChanged(event => {
+    if (event.id !== projectId || event.token !== gitWatchToken || disposed) return
+    if (event.error) gitWatchError.value = '文件监听已停止，切回窗口或点击刷新可更新状态'
+    void refreshGit()
+  })
+  window.addEventListener('focus', onGitFocus)
+  document.addEventListener('visibilitychange', onGitVisible)
+  void window.api.git.watch(projectId, gitWatchToken).catch(() => {
+    if (!disposed) gitWatchError.value = '文件监听不可用，切回窗口或点击刷新可更新状态'
+  })
+}
+
+onUnmounted(() => {
+  disposed = true
+  stopGitEvents?.()
+  window.removeEventListener('focus', onGitFocus)
+  document.removeEventListener('visibilitychange', onGitVisible)
+  if (gitWatchToken) void window.api.git.unwatch(gitWatchToken).catch(() => {})
+})
 
 async function loadTasks() {
   try {
@@ -338,7 +408,7 @@ async function doCommit(alsoPush = false, selectedOnly = false) {
     commitMessage.value = ''
     selectedChanges.value = new Set()
     if (alsoPush) {
-      const pushMsg = await window.api.git.push(projectId, false)
+      const pushMsg = await window.api.git.push(projectId, git.value?.upstream === null)
       ElMessage.success(pushMsg)
     }
   } catch (e) {
@@ -365,7 +435,7 @@ async function doPull() {
 async function doPush() {
   busy.value = 'push'
   try {
-    ElMessage.success(await window.api.git.push(projectId, false))
+    ElMessage.success(await window.api.git.push(projectId, git.value?.upstream === null))
   } catch (e) {
     ElMessage.error(`推送失败: ${(e as Error).message}`)
   } finally {
@@ -827,7 +897,8 @@ const statusType: Record<string, string> = {
 }
 
 onMounted(async () => {
-  load()
+  startGitWatching()
+  void load().then(() => refreshGit())
   loadCommits()
   loadBranches()
   loadRunCommands()
@@ -1019,14 +1090,24 @@ onMounted(async () => {
             <template #header><b>Git 工作区</b></template>
             <el-tabs>
               <el-tab-pane label="变更与提交">
-                <div v-if="git.changes.length" class="changes-list">
-                  <label v-for="f in git.changes" :key="f.path" class="change-row">
-                    <el-checkbox :model-value="selectedChanges.has(f.path)" @change="toggleChange(f.path)" />
-                    <span class="type-chip">{{ f.status }}</span>
-                    <span class="remote-url" :title="f.path">{{ f.path }}</span>
-                  </label>
+                <div class="git-section-head">
+                  <b>未提交变更 <span class="type-chip">{{ git.changes.length }}</span></b>
+                  <el-button size="small" text :icon="RefreshRight" :loading="gitRefreshing" @click="refreshGit">刷新</el-button>
                 </div>
-                <div v-else class="tip-line" style="padding: 4px 0 8px">工作区干净，没有未提交变更</div>
+                <div v-if="gitWatchError" class="tip-line">{{ gitWatchError }}</div>
+                <div v-for="group in changeGroups" :key="group.key" class="change-group" :class="'changes-' + group.key">
+                  <div class="git-section-head"><b>{{ group.title }} <span class="type-chip">{{ group.files.length }}</span></b></div>
+                  <div v-if="group.files.length" class="changes-list">
+                    <label v-for="f in group.files" :key="f.path" class="change-row">
+                      <el-checkbox :model-value="selectedChanges.has(f.path)" @change="toggleChange(f.path)" />
+                      <span class="type-chip">{{ f.displayStatus }}</span>
+                      <span class="remote-url" :title="f.path">{{ f.path }}</span>
+                    </label>
+                  </div>
+                  <div v-else class="tip-line">{{ group.empty }}</div>
+                </div>
+                <div v-if="!git.changes.length" class="tip-line" style="padding: 4px 0 8px">工作区干净，没有未提交变更</div>
+                <div v-if="changeGroups[0].files.some(f => f.worktreeStatus)" class="tip-line" style="padding-bottom: 8px">暂存后继续修改的文件会同时出现在两组中。</div>
                 <el-input v-model="commitMessage" placeholder="提交说明，如 feat: 新增 xx 功能" />
                 <div class="btn-row" style="margin-top: 10px">
                   <el-button
@@ -1048,6 +1129,23 @@ onMounted(async () => {
                   <el-button size="small" :disabled="!!busy" :loading="busy === 'pull'" @click="doPull">拉取</el-button>
                   <el-button size="small" :disabled="!!busy" :loading="busy === 'push'" @click="doPush">推送</el-button>
                 </div>
+                <el-divider />
+                <div class="git-section-head">
+                  <b>待推送提交 <span class="type-chip">{{ git.ahead }}</span></b>
+                  <span v-if="git.upstream" class="tip-line">上游：{{ git.upstream }}</span>
+                </div>
+                <div v-if="!git.upstream" class="tip-line">当前分支未设置上游，按本地已知的远程引用识别待推送提交。</div>
+                <div v-if="git.pendingCommits?.length" class="commit-list">
+                  <div v-for="c in git.pendingCommits" :key="c.hash" class="commit-row">
+                    <span class="mono">{{ c.hash }}</span>
+                    <span class="commit-msg" :title="c.message">{{ c.message }}</span>
+                    <span class="time">{{ c.author }} · {{ fmtTime(c.date) }}</span>
+                  </div>
+                </div>
+                <div v-else class="tip-line" style="padding: 8px 0">没有待推送提交</div>
+                <div v-if="git.ahead > (git.pendingCommits?.length || 0)" class="tip-line">仅展示最近 {{ git.pendingCommits?.length || 0 }} 条，共 {{ git.ahead }} 条待推送提交</div>
+                <div v-if="git.behind" class="tip-line">落后上游 {{ git.behind }} 条提交，可拉取更新</div>
+                <div class="tip-line">状态依据本地远程引用；拉取或外部 fetch 后会自动更新。</div>
               </el-tab-pane>
               <el-tab-pane label="远程与分支">
                 <div class="branch-row">
@@ -1325,6 +1423,8 @@ onMounted(async () => {
 .field-row .el-input { flex: 1; }
 .hash { color: var(--el-color-primary); font-weight: 600; font-size: 12px; background: var(--el-fill-color); border-radius: 4px; padding: 1px 6px; flex-shrink: 0; }
 .commit-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; }
+.git-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.change-group { margin-bottom: 12px; }
 .commit-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--el-border-color-lighter); font-size: 13px; }
 .commit-row:last-child { border-bottom: none; }
 .commit-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--el-text-color-regular); }

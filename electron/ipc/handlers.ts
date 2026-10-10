@@ -18,6 +18,7 @@ import { aiService } from '../services/ai.service'
 import { getDb } from '../db'
 import { logUsage, runMaintenanceNow } from '../services/maintenance.service'
 import { diskCleanerService } from '../services/disk-cleaner.service'
+import { watchGitProject } from '../services/git-watch.service'
 
 const STAGE_RANK: Record<string, number> = { planning: 0, developing: 1, testing: 2, released: 3 }
 
@@ -75,6 +76,34 @@ function getHiddenRunCommands(projectId: string): string[] {
 }
 
 export function registerIpcHandlers(): void {
+  const gitWatches = new Map<string, () => void>()
+  ipcMain.handle('git:watch', (event, id: string, token: string) => {
+    const project = projectRepo.get(id)
+    if (!project) throw new Error('项目不存在')
+    const sender = event.sender
+    const key = `${sender.id}:${token}`
+    gitWatches.get(key)?.()
+    const cleanup = () => {
+      stop()
+      gitWatches.delete(key)
+      sender.removeListener('destroyed', cleanup)
+      sender.removeListener('render-process-gone', cleanup)
+      sender.removeListener('did-navigate', cleanup)
+    }
+    const stop = watchGitProject(project.path,
+      () => { if (!sender.isDestroyed()) sender.send('git:changed', { id, token }) },
+      error => { cleanup(); if (!sender.isDestroyed()) sender.send('git:changed', { id, token, error: error.message }) })
+    gitWatches.set(key, cleanup)
+    sender.once('destroyed', cleanup)
+    sender.once('render-process-gone', cleanup)
+    sender.once('did-navigate', cleanup)
+  })
+  ipcMain.handle('git:unwatch', (event, token: string) => gitWatches.get(`${event.sender.id}:${token}`)?.())
+  ipcMain.handle('git:summary', (_event, id: string) => {
+    const project = projectRepo.get(id)
+    if (!project) throw new Error('项目不存在')
+    return gitSummary(project.path)
+  })
   // ---- workspace ----
   ipcMain.handle('workspace:list', () => workspaceRepo.list())
 

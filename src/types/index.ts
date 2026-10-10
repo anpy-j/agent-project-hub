@@ -35,12 +35,21 @@ export interface ProjectRemote {
   is_default: number
 }
 
+export interface GitChange {
+  path: string
+  status: string
+  indexStatus: string
+  worktreeStatus: string
+}
+
 export interface GitSummary {
   isGit: boolean
   branch: string | null
   ahead: number
   behind: number
-  changes: Array<{ path: string; status: string }>
+  upstream?: string | null
+  pendingCommits?: GitCommit[]
+  changes: GitChange[]
   lastCommit: { hash: string; message: string; author: string; date: string } | null
 }
 

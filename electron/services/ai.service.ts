@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto'
 import { openSync, readFileSync, unlinkSync, closeSync } from 'fs'
 import type { AiConfig, AiProviderOption, ServiceCandidate } from '../../src/types'
 import { aiConfigRepo } from '../db/repositories'
+import { aiRequestError } from './ai-errors'
 
 export const AI_PROVIDERS: AiProviderOption[] = [
   {
@@ -153,7 +154,7 @@ export class AiService {
   private effectiveBase(cfg?: AiConfig): string {
     const c = cfg ?? aiConfigRepo.get()
     const provider = AI_PROVIDERS.find((p) => p.value === c.provider)
-    return (c.base_url || provider?.baseUrl || '').replace(/\/+$/, '')
+    return (c.base_url || provider?.baseUrl || '').trim().replace(/\/+$/, '')
   }
 
   private hasAi(cfg?: AiConfig): boolean {
@@ -194,7 +195,7 @@ export class AiService {
       }
       throw new Error(`获取模型列表失败（HTTP ${res.status}）`)
     } catch (e) {
-      throw new Error(`获取模型列表失败：${(e as Error).message}`)
+      throw new Error(`获取模型列表失败：${aiRequestError(e, base, t.signal.aborted)}`)
     } finally {
       t.done()
     }
@@ -249,8 +250,7 @@ export class AiService {
       if (!content) throw new Error('AI 返回为空')
       return content
     } catch (e) {
-      const msg = (e as Error).message
-      throw new Error(msg.includes('aborted') ? 'AI 请求超时' : `AI 请求失败：${msg}`)
+      throw new Error(`AI 请求失败：${aiRequestError(e, base, t.signal.aborted)}`)
     } finally {
       t.done()
     }

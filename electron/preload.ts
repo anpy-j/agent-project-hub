@@ -134,6 +134,14 @@ const api: ProjectHubAPI = {
     setAutoRestart: (id: string, enabled: boolean) => invoke('project:autoRestart:set', id, enabled)
   },
   git: {
+    summary: id => invoke('git:summary', id),
+    watch: (id, token) => invoke('git:watch', id, token),
+    unwatch: token => invoke('git:unwatch', token),
+    onChanged: callback => {
+      const handler = (_event: unknown, value: { id: string; token: string; error?: string }) => callback(value)
+      ipcRenderer.on('git:changed', handler)
+      return () => ipcRenderer.removeListener('git:changed', handler)
+    },
     log: (id: string, count?: number) => invoke('git:log', id, count),
     init: (id: string) => invoke('git:init', id),
     linkRemote: (id: string, payload: { name?: string; url: string }) => invoke('git:linkRemote', id, payload),

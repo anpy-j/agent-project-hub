@@ -82,6 +82,10 @@ export interface ProjectHubAPI {
     setAutoRestart: (id: string, enabled: boolean) => Promise<boolean>
   }
   git: {
+    summary: (id: string) => Promise<GitSummary>
+    watch: (id: string, token: string) => Promise<void>
+    unwatch: (token: string) => Promise<void>
+    onChanged: (callback: (event: { id: string; token: string; error?: string }) => void) => () => void
     log: (projectId: string, count?: number) => Promise<GitCommit[]>
     init: (projectId: string) => Promise<void>
     linkRemote: (projectId: string, payload: { name?: string; url: string }) => Promise<Project | null>

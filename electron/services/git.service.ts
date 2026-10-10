@@ -1,7 +1,7 @@
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
-import type { GitPlatform, GitSummary } from '../../src/types'
+import type { GitChange, GitPlatform, GitSummary } from '../../src/types'
 
 export function detectPlatformOf(url: string): GitPlatform {
   if (url.includes('github.com')) return 'github'
@@ -12,21 +12,24 @@ export function detectPlatformOf(url: string): GitPlatform {
 
 function git(dir: string, args: string[], raw = false): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('git', ['-C', dir, ...args], { timeout: 15000, maxBuffer: 1024 * 1024 }, (err, stdout) => {
+    execFile('git', ['--no-optional-locks', '-C', dir, ...args], { timeout: 15000, maxBuffer: 1024 * 1024 }, (err, stdout) => {
       if (err) reject(err)
       else resolve(raw ? String(stdout || '') : String(stdout || '').trim())
     })
   })
 }
 
-export function parseGitChanges(output: string): Array<{ path: string; status: string }> {
+export function parseGitChanges(output: string): GitChange[] {
   const records = output.split('\0')
-  const changes: Array<{ path: string; status: string }> = []
+  const changes: GitChange[] = []
   for (let i = 0; i < records.length; i++) {
     const record = records[i]
     if (!record) continue
     const status = record.slice(0, 2)
-    changes.push({ status: status.trim() || 'M', path: record.slice(3) })
+    changes.push({
+      status: status.trim() || 'M', path: record.slice(3),
+      indexStatus: status[0].trim(), worktreeStatus: status[1].trim()
+    })
     // porcelain -z 的重命名/复制记录先输出目标路径，再输出原路径。
     if (/[RC]/.test(status)) i++
   }
@@ -65,16 +68,25 @@ export async function gitSummary(dir: string): Promise<GitSummary> {
   }
   const empty: GitSummary = { isGit: true, branch: null, ahead: 0, behind: 0, changes: [], lastCommit: null }
   try {
-    const branch = await git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])
+    const branch = await git(dir, ['symbolic-ref', '--short', 'HEAD']).catch(() => '(detached)')
     let ahead = 0
     let behind = 0
+    const upstream = await git(dir, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']).catch(() => null)
+    let pendingCommits: GitCommit[] = []
     try {
-      const sb = await git(dir, ['status', '-sb'])
-      const first = sb.split('\n')[0] || ''
-      const aheadMatch = first.match(/ahead (\d+)/)
-      const behindMatch = first.match(/behind (\d+)/)
-      ahead = aheadMatch ? Number(aheadMatch[1]) : 0
-      behind = behindMatch ? Number(behindMatch[1]) : 0
+      // 无上游时，以本地已知的所有远程引用为依据，避免把已发布历史全部算作待推送。
+      const range = upstream ? ['@{upstream}..HEAD'] : ['HEAD', '--not', '--remotes']
+      const [count, raw, behindCount] = await Promise.all([
+        git(dir, ['rev-list', '--count', ...range]),
+        git(dir, ['log', '-50', '--pretty=format:%h%x00%s%x00%an%x00%aI%x00', ...range], true),
+        upstream ? git(dir, ['rev-list', '--count', 'HEAD..@{upstream}']) : Promise.resolve('0')
+      ])
+      ahead = Number(count)
+      behind = Number(behindCount)
+      const fields = raw.split('\0')
+      for (let i = 0; i + 3 < fields.length; i += 4) {
+        pendingCommits.push({ hash: fields[i].trim(), message: fields[i + 1], author: fields[i + 2], date: fields[i + 3] })
+      }
     } catch {
       // 无 upstream
     }
@@ -86,14 +98,14 @@ export async function gitSummary(dir: string): Promise<GitSummary> {
     } catch {
       // 空仓库
     }
-    let changes: Array<{ path: string; status: string }> = []
+    let changes: GitChange[] = []
     try {
       const st = await git(dir, ['status', '--porcelain=v1', '-z'], true)
       changes = parseGitChanges(st)
     } catch {
       // ignore
     }
-    return { isGit: true, branch: branch === 'HEAD' ? '(detached)' : branch, ahead, behind, changes, lastCommit }
+    return { isGit: true, branch, ahead, behind, upstream, pendingCommits, changes, lastCommit }
   } catch {
     return empty
   }
