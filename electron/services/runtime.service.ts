@@ -73,7 +73,9 @@ export const runtimeService = {
         const existing = getDb()
           .prepare('SELECT 1 FROM runtime WHERE kind = ? AND path = ?')
           .get(kind, p.path)
-        if (!existing) {
+        if (existing) {
+          getDb().prepare('UPDATE runtime SET version = ? WHERE kind = ? AND path = ?').run(p.version, kind, p.path)
+        } else {
           const id = randomUUID()
           const isDefault = getDb()
             .prepare('SELECT COUNT(*) as c FROM runtime WHERE kind = ?')

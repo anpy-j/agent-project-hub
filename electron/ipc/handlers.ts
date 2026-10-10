@@ -1,3 +1,6 @@
+import { flutterEnvironment } from '../services/flutter-environment'
+import { projectChild } from '../services/build-targets'
+import { listBuildTargets, saveBuildTargets } from '../services/build-targets'
 import { ipcMain, shell, dialog, BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
 import { workspaceRepo, projectRepo, remoteRepo, taskRepo } from '../db/repositories'
@@ -135,6 +138,22 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('project:clone', (_e, data: { url: string; parent: string; directory: string }) =>
     cloneProject(data.url, data.parent, data.directory)
   )
+  ipcMain.handle('project:buildTargets', (_e, id: string) => {
+    const project = projectRepo.get(id)
+    if (!project) throw new Error('项目不存在')
+    return listBuildTargets(project)
+  })
+  ipcMain.handle('project:flutterEnvironment', async (_e, id: string, target: import('../../src/types').BuildTarget) => {
+    const project = projectRepo.get(id)
+    if (!project) throw new Error('项目不存在')
+    const directory = projectChild(project.path, target.directory)
+    return (await flutterEnvironment(directory, target, target.commands.some(c => /\b(apk|appbundle)\b/.test(c)))).report
+  })
+  ipcMain.handle('project:saveBuildTargets', (_e, id: string, targets: import('../../src/types').BuildTarget[]) => {
+    const project = projectRepo.get(id)
+    if (!project) throw new Error('项目不存在')
+    saveBuildTargets(project, targets)
+  })
   ipcMain.handle('project:buildCommand', (_e, id: string) => {
     const project = projectRepo.get(id)
     if (!project) throw new Error('项目不存在')
@@ -324,12 +343,12 @@ export function registerIpcHandlers(): void {
     if (!sender) throw new Error('没有可用窗口')
     return runnerService.startCustom(projectId, cmd, sender)
   })
-  ipcMain.handle('runner:startBuild', (_e, projectId: string) => {
+  ipcMain.handle('runner:startBuild', (_e, projectId: string, targetId?: string) => {
     const sender = getMainWindowSender()
     if (!sender) throw new Error('没有可用窗口')
-    return runnerService.startBuild(projectId, sender)
+    return runnerService.startBuild(projectId, sender, targetId)
   })
-  ipcMain.handle('runner:artifacts', (_e, projectId: string) => runnerService.artifacts(projectId))
+  ipcMain.handle('runner:artifacts', (_e, projectId: string, targetId?: string) => runnerService.artifacts(projectId, targetId))
 
   // ---- 本机服务管理 ----
   ipcMain.handle('service:list', () => serviceManager.list())

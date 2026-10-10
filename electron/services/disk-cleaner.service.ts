@@ -14,6 +14,7 @@ import type {
   CleanExecutionResult
 } from '../../src/types'
 import { aiService } from './ai.service'
+import { getMacDiskDrives } from './disk-drives'
 
 const execAsync = promisify(exec)
 
@@ -124,6 +125,8 @@ export class DiskCleanerService {
           // ignore drive error
         }
       }
+    } else if (platform() === 'darwin') {
+      return getMacDiskDrives()
     } else {
       try {
         const stat = statfsSync('/')

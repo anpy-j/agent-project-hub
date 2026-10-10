@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MarkdownIt from 'markdown-it'
 import PageHeader from '../components/PageHeader.vue'
+import SkillsAssistant from './SkillsAssistant.vue'
 import type { Project } from '../types'
 import type { SkillHistory, SkillInstallation, SkillPackage, SkillPreview, SkillScope, SkillSnapshot, SkillTarget, SkillUpdate } from '../types/skills'
 
-const router = useRouter()
+const router = useRouter(), route = useRoute()
 const md = new MarkdownIt({ html: false, linkify: false, breaks: true })
 const data = ref<SkillSnapshot>({ skills: [], installations: [], targets: [] })
 const projects = ref<Project[]>([])
@@ -76,10 +77,23 @@ function externalLink(e: MouseEvent) {
 }
 
 const importVisible = ref(false), importKind = ref<'github' | 'url' | 'local' | 'scan'>('github'), location = ref(''), refName = ref('')
+const chineseDescriptions = ref<Record<string, string>>({}), translating = ref(false), translationNotice = ref('')
 const preview = ref<SkillPreview | null>(null), candidates = ref<string[]>([]), parsing = ref(false)
 const importTargets = ref<SkillTarget[]>([]), importScope = ref<SkillScope>('global'), importProject = ref(''), replaceExisting = ref(false)
+async function describeCandidates() {
+  const current = preview.value
+  if (!current) return
+  translating.value = true; translationNotice.value = ''
+  try {
+    const result = await window.api.skills.describeCandidates(current.candidates.map(({ id, name, description }) => ({ id, name, description })))
+    if (preview.value?.token !== current.token) return
+    chineseDescriptions.value = result.descriptions
+    translationNotice.value = result.notice
+  } catch (e) { if (preview.value?.token === current.token) translationNotice.value = `中文说明生成失败：${message(e)}` }
+  finally { if (preview.value?.token === current.token) translating.value = false }
+}
 function openImport(kind: typeof importKind.value = 'github') { importKind.value = kind; importVisible.value = true }
-async function clearPreview() { if (preview.value) await window.api.skills.discard(preview.value.token); preview.value = null; candidates.value = [] }
+async function clearPreview() { if (preview.value) await window.api.skills.discard(preview.value.token); preview.value = null; candidates.value = []; chineseDescriptions.value = {}; translationNotice.value = ''; translating.value = false }
 async function pickLocal(kind: 'file' | 'folder') {
   try { const path = await window.api.skills.pickLocal(kind); if (path) { location.value = path; await clearPreview() } } catch (e) { ElMessage.error(message(e)) }
 }
@@ -89,6 +103,7 @@ async function parseImport() {
     await clearPreview()
     preview.value = importKind.value === 'scan' ? await window.api.skills.scan(importProject.value || undefined) : await window.api.skills.preview({ kind: importKind.value, location: location.value.trim(), ref: refName.value.trim() || undefined })
     candidates.value = preview.value.candidates.map(c => c.id)
+    void describeCandidates()
     if (!candidates.value.length) ElMessage.info('未发现技能，可导入本地目录或 GitHub 技能包。')
   } catch (e) { ElMessage.error(message(e)) } finally { parsing.value = false }
 }
@@ -190,26 +205,27 @@ onBeforeUnmount(() => { if (preview.value) void window.api.skills.discard(previe
 
 <template>
   <div class="page skills-page" v-loading="loading">
-    <PageHeader title="Skills 管理" subtitle="收藏、阅读和管理技能，安装到你的 AI 工具">
+    <PageHeader title="Skills 管理">
       <template #actions>
-      <el-button :disabled="busy" @click="openImport('scan')"><el-icon><Search /></el-icon>扫描本机</el-button>
-      <el-button :disabled="busy" @click="refresh"><el-icon><Refresh /></el-icon>刷新</el-button>
-      <el-button type="primary" :disabled="busy" @click="openImport()"><el-icon><Plus /></el-icon>导入技能</el-button>
+      <el-button size="small" :disabled="busy" @click="openImport('scan')"><el-icon><Search /></el-icon>扫描本机</el-button>
+      <el-tooltip content="刷新技能库"><el-button size="small" :disabled="busy" aria-label="刷新技能库" @click="refresh"><el-icon><Refresh /></el-icon></el-button></el-tooltip>
+      <el-button size="small" type="primary" :disabled="busy" @click="openImport()"><el-icon><Plus /></el-icon>导入技能</el-button>
       </template>
     </PageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <div class="skills-toolbar">
-      <el-input v-model="search" placeholder="搜索名称或用途…" clearable aria-label="搜索技能"><template #prefix><el-icon><Search /></el-icon></template></el-input>
-      <el-select v-model="targetFilter" placeholder="全部目标" clearable aria-label="筛选目标"><el-option v-for="t in data.targets" :key="t.id" :label="t.name" :value="t.id" /></el-select>
-      <el-select v-model="sourceFilter" placeholder="全部来源" clearable aria-label="筛选来源"><el-option v-for="s in ['local','github','url','discovered']" :key="s" :label="sourceName(s)" :value="s" /></el-select>
+      <el-radio-group v-model="stateFilter" size="small" class="state-tabs" aria-label="技能状态"><el-radio-button value="all">全部 {{ data.skills.length }}</el-radio-button><el-radio-button value="installed">已安装</el-radio-button><el-radio-button value="uninstalled">未安装</el-radio-button><el-radio-button value="modified">需处理</el-radio-button></el-radio-group>
+      <div class="skills-filters">
+        <el-input v-model="search" size="small" placeholder="搜索技能…" clearable aria-label="搜索技能"><template #prefix><el-icon><Search /></el-icon></template></el-input>
+        <el-select v-model="targetFilter" size="small" placeholder="全部目标" clearable aria-label="筛选目标"><el-option v-for="t in data.targets" :key="t.id" :label="t.name" :value="t.id" /></el-select>
+        <el-select v-model="sourceFilter" size="small" placeholder="全部来源" clearable aria-label="筛选来源"><el-option v-for="s in ['local','github','url','discovered']" :key="s" :label="sourceName(s)" :value="s" /></el-select>
+      </div>
     </div>
-    <el-radio-group v-model="stateFilter" class="state-tabs" aria-label="技能状态"><el-radio-button value="all">全部 {{ data.skills.length }}</el-radio-button><el-radio-button value="installed">已安装</el-radio-button><el-radio-button value="uninstalled">未安装</el-radio-button><el-radio-button value="modified">需处理</el-radio-button></el-radio-group>
     <div class="skills-layout">
       <section class="skills-list" aria-label="技能列表">
         <el-empty v-if="!visibleSkills.length" :description="data.skills.length ? '没有匹配的技能' : '导入技能包，或扫描本机已有技能'" :image-size="72"><el-button v-if="!data.skills.length" @click="openImport('local')">导入我的技能</el-button></el-empty>
         <button v-for="skill in visibleSkills" :key="skill.id" type="button" class="skill-row" :class="{ selected: selectedId === skill.id }" :aria-pressed="selectedId === skill.id" @click="selectedId = skill.id">
-          <strong>{{ skill.title }}</strong><span class="skill-slug">{{ skill.name }}</span><p>{{ skill.description }}</p>
-          <div class="skill-tags"><el-tag size="small" type="info">{{ sourceName(skill.source.kind) }}</el-tag><el-tag v-for="t in [...new Set(data.installations.filter(i => i.skillId === skill.id).map(i => i.target))]" :key="t" size="small">{{ targetName(t) }}</el-tag></div>
+          <strong :title="skill.title">{{ skill.title }}</strong><span class="skill-slug" :title="skill.name">{{ skill.name }}</span>
         </button>
       </section>
       <section v-if="selected" class="skill-detail" aria-label="技能详情">
@@ -217,12 +233,13 @@ onBeforeUnmount(() => { if (preview.value) void window.api.skills.discard(previe
         <el-tabs v-model="tab">
           <el-tab-pane label="概览" name="overview">
             <h3>用途说明</h3><p class="description">{{ selected.description }}</p>
-            <el-alert title="库中技能可直接查看和解读。内置技能助手需在 Project Hub AI 中启用，仅建立关联，不重复复制；随包分发目录用于打包，外部 AI 工具需安装到其识别的目录。" type="info" :closable="false" />
+            <el-alert title="库中技能可直接查看和解读。可在下方直接使用当前技能提问；Project Hub AI 启用仅建立关联，不重复复制；随包分发目录用于打包，外部 AI 工具需安装到其识别的目录。" type="info" :closable="false" />
             <dl class="skill-meta"><dt>来源</dt><dd>{{ selected.source.location }}</dd><dt>版本</dt><dd>{{ selected.source.commit?.slice(0,12) || selected.hash.slice(0,12) }}<span v-if="selected.source.ref"> · {{ selected.source.ref }}</span></dd><dt>文件</dt><dd>{{ selected.files.length }} 个文件 · {{ size(selected.files.reduce((n,f) => n + f.bytes, 0)) }}</dd><dt>最近导入</dt><dd>{{ new Date(selected.updatedAt).toLocaleString() }}</dd></dl>
             <el-alert v-for="warning in selected.warnings" :key="warning" :title="warning" type="warning" :closable="false" class="skill-warning" />
             <div class="section-head"><h3>AI 解读</h3><el-button size="small" :loading="busy" @click="explain">{{ selected.analysis ? '查看 / 使用缓存' : '解读用途' }}</el-button></div>
             <div v-if="selected.analysis" class="markdown-content" v-html="md.render(selected.analysis)" @click="externalLink" />
             <p v-else class="secondary">可用已配置模型解释场景、调用方法与依赖。未配置模型也可正常安装和查看。</p>
+            <SkillsAssistant :key="`${selected.id}:${selected.hash}`" :skill-id="selected.id" :skill-name="selected.title" :initial-project-id="typeof route.query.projectId === 'string' ? route.query.projectId : ''" />
           </el-tab-pane>
           <el-tab-pane label="内容" name="content">
             <div class="file-controls"><el-select v-model="filePath" filterable aria-label="技能文件"><el-option v-for="f in selected.files" :key="f.path" :label="`${f.path} · ${size(f.bytes)}`" :value="f.path" /></el-select><el-switch v-model="raw" active-text="原文" inactive-text="预览" /></div>
@@ -249,7 +266,7 @@ onBeforeUnmount(() => { if (preview.value) void window.api.skills.discard(previe
         <el-form-item v-if="importKind === 'scan'" label="额外扫描项目（可选）"><el-select v-model="importProject" clearable filterable placeholder="默认扫描工具全局目录"><el-option v-for="p in projects" :key="p.id" :label="p.display_name || p.name" :value="p.id" /></el-select></el-form-item>
       </el-form>
       <el-button :loading="parsing" :disabled="busy || importKind !== 'scan' && !location.trim()" @click="parseImport">{{ importKind === 'scan' ? '扫描并识别' : '解析并预览' }}</el-button>
-      <div v-if="preview" class="import-preview"><div class="section-head"><h3>识别到 {{ preview.candidates.length }} 个技能</h3><el-button size="small" @click="candidates = candidates.length === preview!.candidates.length ? [] : preview!.candidates.map(c => c.id)">{{ candidates.length === preview.candidates.length ? '取消全选' : '全选' }}</el-button></div><el-checkbox-group v-model="candidates"><div v-for="candidate in preview.candidates" :key="candidate.id" class="candidate"><el-checkbox :value="candidate.id">{{ candidate.title }} <span class="secondary">{{ candidate.name }}{{ candidate.existingId ? ' · 库中已有相同内容' : '' }}</span></el-checkbox><p>{{ candidate.description }}</p><small>{{ candidate.files.length }} 个文件{{ candidate.discovered ? ' · 外部安装，纳入后只读关联' : '' }}</small><p v-for="w in candidate.warnings" :key="w" class="secondary small">{{ w }}</p></div></el-checkbox-group><el-alert v-if="preview.errors.length" :title="`${preview.errors.length} 项未能识别`" type="warning" :closable="false"><template #default><p v-for="e in preview.errors" :key="e" class="secondary small">{{ e }}</p></template></el-alert></div>
+      <div v-if="preview" class="import-preview"><div class="section-head"><h3>识别到 {{ preview.candidates.length }} 个技能</h3><el-button size="small" @click="candidates = candidates.length === preview!.candidates.length ? [] : preview!.candidates.map(c => c.id)">{{ candidates.length === preview.candidates.length ? '取消全选' : '全选' }}</el-button></div><p v-if="translating" class="secondary small">正在生成中文用途说明，你可以继续选择技能。</p><div v-if="translationNotice" class="translation-notice"><span>{{ translationNotice }}</span><el-button size="small" :loading="translating" @click="describeCandidates">重试中文说明</el-button></div><el-checkbox-group v-model="candidates"><div v-for="candidate in preview.candidates" :key="candidate.id" class="candidate"><el-checkbox :value="candidate.id">{{ candidate.title }} <span class="secondary">{{ candidate.name }}{{ candidate.existingId ? ' · 库中已有相同内容' : '' }}</span></el-checkbox><p class="candidate-description">{{ chineseDescriptions[candidate.id] || (/[\u3400-\u9fff]/.test(candidate.description) ? candidate.description : translating ? '正在生成中文用途说明…' : '暂无中文说明，请展开原文查看用途。') }}</p><div class="candidate-location"><span>位置</span><code>{{ candidate.discovered?.path || candidate.source.location }}</code></div><details v-if="!/[\u3400-\u9fff]/.test(candidate.description)" class="candidate-original"><summary>查看英文原文</summary><p>{{ candidate.description }}</p></details><small>{{ candidate.files.length }} 个文件{{ candidate.discovered ? ' · 外部安装，纳入后只读关联' : '' }}</small><p v-for="w in candidate.warnings" :key="w" class="secondary small">{{ w }}</p></div></el-checkbox-group><el-alert v-if="preview.errors.length" :title="`${preview.errors.length} 项未能识别`" type="warning" :closable="false"><template #default><p v-for="e in preview.errors" :key="e" class="secondary small">{{ e }}</p></template></el-alert></div>
       <div v-if="preview?.candidates.length" class="import-install"><h3>同时安装到（不选则仅加入技能库）</h3><el-checkbox-group v-model="importTargets"><el-checkbox v-for="t in data.targets" :key="t.id" :value="t.id">{{ t.name }}</el-checkbox></el-checkbox-group><div v-if="importTargets.length" class="scope-controls"><el-radio-group v-model="importScope"><el-radio value="global">全局</el-radio><el-radio value="project">指定项目</el-radio></el-radio-group><el-select v-if="importScope === 'project'" v-model="importProject" placeholder="选择项目"><el-option v-for="p in projects" :key="p.id" :label="p.display_name || p.name" :value="p.id" /></el-select><el-checkbox v-model="replaceExisting">备份后替换已有目录</el-checkbox></div></div>
       <template #footer><el-button :disabled="busy || parsing" @click="importVisible = false">取消</el-button><el-button type="primary" :loading="busy" :disabled="!candidates.length || parsing" @click="finishImport">{{ importTargets.length ? '导入并安装' : '加入技能库' }}</el-button></template>
     </el-dialog>
@@ -262,11 +279,30 @@ onBeforeUnmount(() => { if (preview.value) void window.api.skills.discard(previe
 <style scoped>
 .title-with-action{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .skills-page,.skills-layout>.skill-detail{box-sizing:border-box}
-.skills-page>.skills-toolbar,.skills-page>.state-tabs,.skills-page>.el-alert{flex-shrink:0}
+.skills-page>.skills-toolbar,.skills-page>.el-alert{flex-shrink:0}
 .skills-page>.skills-layout{flex:1;min-height:0;align-items:stretch;overflow:hidden;padding-bottom:2px}
 .skills-layout>.skills-list,.skills-layout>.skill-detail{min-height:0;max-height:100%;overflow-y:auto;overscroll-behavior:contain}
 .skills-layout>.skill-detail{scrollbar-gutter:stable}
-.skills-page{min-height:0;padding-bottom:24px}.skills-toolbar{display:grid;grid-template-columns:minmax(200px,1fr) 170px 150px;gap:12px;margin:20px 0 16px}.state-tabs{margin-bottom:18px}.skills-layout{display:grid;grid-template-columns:minmax(240px,.8fr) minmax(0,1.5fr);gap:18px;align-items:start}.skills-list{display:flex;flex-direction:column;gap:10px;min-width:0}.skill-row{padding:16px;text-align:left;background:var(--ph-panel);border:1px solid var(--ph-line);border-radius:var(--ph-radius-md);font:inherit;color:var(--el-text-color-primary);cursor:pointer;min-width:0}.skill-row:hover,.skill-row.selected{border-color:var(--el-color-primary)}.skill-row.selected{background:var(--el-color-primary-light-9)}.skill-row strong{font-size:14px;display:block;overflow-wrap:anywhere}.skill-slug{display:block;margin-top:6px;color:var(--el-text-color-secondary);font:11px var(--ph-font-mono);overflow-wrap:anywhere}.skill-row p{color:var(--el-text-color-secondary);line-height:1.7;margin:12px 0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:12px}.skill-tags{display:flex;gap:6px;flex-wrap:wrap}.skill-detail{background:var(--ph-panel);border:1px solid var(--ph-line);border-radius:var(--ph-radius-md);padding:20px;min-width:0}.detail-title{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:18px}.detail-title h2{font-size:18px;margin:0;overflow-wrap:anywhere}.description{line-height:1.9;font-size:13px;white-space:pre-wrap}.skill-meta{display:grid;grid-template-columns:68px minmax(0,1fr);gap:12px;font-size:12px;margin:22px 0}.skill-meta dt,.secondary{color:var(--el-text-color-secondary)}.skill-meta dd{margin:0;overflow-wrap:anywhere;line-height:1.6}.small{font-size:12px}.skill-warning{margin:10px 0}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h3{font-size:13px;margin:18px 0 10px}.section-head h3{margin:18px 0}.secondary{line-height:1.7}.file-controls{display:flex;gap:14px;align-items:center;margin:10px 0 18px;flex-wrap:wrap}.file-controls .el-select{flex:1;min-width:160px}.file-view{min-height:180px}.skill-code{font:12px/1.8 var(--ph-font-mono);background:var(--ph-field);border-radius:8px;padding:14px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:560px;overflow:auto;margin:0}.install-preview{width:100%}.target-block{border-bottom:1px solid var(--ph-line);padding:6px 0 16px}.target-block:last-child{border:0}.installation{border:1px solid var(--ph-line);padding:12px;border-radius:8px;margin-top:10px}.installation-title,.installation-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12px}.install-path{font:11px/1.6 var(--ph-font-mono);color:var(--el-text-color-secondary);overflow-wrap:anywhere}.installation-actions{justify-content:flex-end;margin-top:10px}.history-row{border-bottom:1px solid var(--ph-line);padding:12px 0}.history-row span{font-size:11px;color:var(--el-text-color-secondary)}.history-row p{font-size:12px;line-height:1.7;overflow-wrap:anywhere}.import-sources{margin-bottom:20px}.local-actions{display:flex;gap:8px;margin-top:10px}.import-preview{margin-top:20px}.candidate{border-bottom:1px solid var(--ph-line);padding:12px 0}.candidate p{margin:5px 0;line-height:1.7;font-size:12px}.candidate small{color:var(--el-text-color-secondary)}.candidate :deep(.el-checkbox){max-width:100%;height:auto;align-items:flex-start}.candidate :deep(.el-checkbox__label){white-space:normal;overflow-wrap:anywhere;line-height:1.7}.import-install{border-top:1px solid var(--ph-line);margin-top:20px}.scope-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}.scope-controls .el-select{width:220px}.diff-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}.diff-columns>div{min-width:0}.update-change{margin-top:18px}.markdown-content{font-size:13px;line-height:1.9;overflow-wrap:anywhere}.markdown-content :deep(h1){font-size:20px}.markdown-content :deep(h2){font-size:17px}.markdown-content :deep(h3){font-size:14px}.markdown-content :deep(pre){white-space:pre-wrap;overflow-wrap:anywhere;background:var(--ph-field);padding:12px;border-radius:8px;font-size:12px}.markdown-content :deep(code){font-family:var(--ph-font-mono)}.markdown-content :deep(a){color:var(--el-color-primary)}.markdown-content :deep(img){display:none}.markdown-content :deep(table){display:block;overflow:auto;max-width:100%}.markdown-content :deep(th),.markdown-content :deep(td){border-bottom:1px solid var(--ph-line);padding:6px 10px}.markdown-content :deep(blockquote){border-left:3px solid var(--ph-line);padding-left:14px;color:var(--el-text-color-secondary)}
-@media(max-width:1100px){.skills-layout{grid-template-columns:minmax(220px,.7fr) minmax(0,1.2fr)}.skill-detail{padding:16px}}@media(max-width:900px){.skills-layout{grid-template-columns:1fr}.skills-toolbar{grid-template-columns:1fr 1fr}.skills-toolbar>.el-input{grid-column:1/-1}.diff-columns{grid-template-columns:1fr}}
+.skills-page{min-height:0;padding-bottom:16px}
+.skills-page :deep(.page-head){align-items:center;gap:12px;margin-bottom:10px;padding-bottom:10px}
+.skills-page :deep(.page-title){font-size:20px}
+.skills-page :deep(.head-actions){gap:6px}
+.skills-page :deep(.head-actions .el-button + .el-button){margin-left:0}
+.skills-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px}
+.state-tabs{flex-shrink:0}
+.skills-filters{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;flex:1}
+.skills-filters>.el-input{width:clamp(160px,20vw,280px);min-width:140px}
+.skills-filters>.el-select{width:120px;flex-shrink:0}
+.skills-layout{display:grid;grid-template-columns:minmax(240px,.8fr) minmax(0,1.5fr);gap:14px;align-items:start}
+.skills-list{display:flex;flex-direction:column;gap:4px;min-width:0}
+.skill-row{box-sizing:border-box;flex-shrink:0;height:54px;padding:7px 12px;text-align:left;background:var(--ph-panel);border:1px solid var(--ph-line);border-radius:6px;font:inherit;color:var(--el-text-color-primary);cursor:pointer;min-width:0}
+.skill-row:hover,.skill-row.selected{border-color:var(--el-color-primary)}
+.skill-row.selected{background:var(--el-color-primary-light-9)}
+.skill-row:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:1px}
+.skill-row strong{font-size:13px;line-height:19px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.skill-slug{display:block;margin-top:6px;color:var(--el-text-color-secondary);font:11px var(--ph-font-mono);overflow-wrap:anywhere}
+.skill-row .skill-slug{margin-top:2px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.skill-detail{background:var(--ph-panel);border:1px solid var(--ph-line);border-radius:var(--ph-radius-md);padding:20px;min-width:0}.detail-title{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:18px}.detail-title h2{font-size:18px;margin:0;overflow-wrap:anywhere}.description{line-height:1.9;font-size:13px;white-space:pre-wrap}.skill-meta{display:grid;grid-template-columns:68px minmax(0,1fr);gap:12px;font-size:12px;margin:22px 0}.skill-meta dt,.secondary{color:var(--el-text-color-secondary)}.skill-meta dd{margin:0;overflow-wrap:anywhere;line-height:1.6}.small{font-size:12px}.skill-warning{margin:10px 0}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h3{font-size:13px;margin:18px 0 10px}.section-head h3{margin:18px 0}.secondary{line-height:1.7}.file-controls{display:flex;gap:14px;align-items:center;margin:10px 0 18px;flex-wrap:wrap}.file-controls .el-select{flex:1;min-width:160px}.file-view{min-height:180px}.skill-code{font:12px/1.8 var(--ph-font-mono);background:var(--ph-field);border-radius:8px;padding:14px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:560px;overflow:auto;margin:0}.install-preview{width:100%}.target-block{border-bottom:1px solid var(--ph-line);padding:6px 0 16px}.target-block:last-child{border:0}.installation{border:1px solid var(--ph-line);padding:12px;border-radius:8px;margin-top:10px}.installation-title,.installation-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12px}.install-path{font:11px/1.6 var(--ph-font-mono);color:var(--el-text-color-secondary);overflow-wrap:anywhere}.installation-actions{justify-content:flex-end;margin-top:10px}.history-row{border-bottom:1px solid var(--ph-line);padding:12px 0}.history-row span{font-size:11px;color:var(--el-text-color-secondary)}.history-row p{font-size:12px;line-height:1.7;overflow-wrap:anywhere}.import-sources{margin-bottom:20px}.local-actions{display:flex;gap:8px;margin-top:10px}.import-preview{margin-top:20px}.candidate{border-bottom:1px solid var(--ph-line);padding:12px 0}.candidate p{margin:5px 0;line-height:1.7;font-size:12px}.candidate-description{color:var(--el-text-color-primary)}.candidate-location{display:flex;align-items:baseline;gap:8px;margin:8px 0;font-size:12px;color:var(--el-text-color-secondary)}.candidate-location>span{flex-shrink:0}.candidate-location code{font:11px/1.6 var(--ph-font-mono);overflow-wrap:anywhere;user-select:text}.candidate-original{margin:8px 0;font-size:12px;color:var(--el-text-color-secondary)}.candidate-original summary{cursor:pointer;width:fit-content}.translation-notice{display:flex;align-items:center;gap:10px;margin:10px 0;font-size:12px;color:var(--el-text-color-secondary)}.candidate small{color:var(--el-text-color-secondary)}.candidate :deep(.el-checkbox){max-width:100%;height:auto;align-items:flex-start}.candidate :deep(.el-checkbox__label){white-space:normal;overflow-wrap:anywhere;line-height:1.7}.import-install{border-top:1px solid var(--ph-line);margin-top:20px}.scope-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}.scope-controls .el-select{width:220px}.diff-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}.diff-columns>div{min-width:0}.update-change{margin-top:18px}.markdown-content{font-size:13px;line-height:1.9;overflow-wrap:anywhere}.markdown-content :deep(h1){font-size:20px}.markdown-content :deep(h2){font-size:17px}.markdown-content :deep(h3){font-size:14px}.markdown-content :deep(pre){white-space:pre-wrap;overflow-wrap:anywhere;background:var(--ph-field);padding:12px;border-radius:8px;font-size:12px}.markdown-content :deep(code){font-family:var(--ph-font-mono)}.markdown-content :deep(a){color:var(--el-color-primary)}.markdown-content :deep(img){display:none}.markdown-content :deep(table){display:block;overflow:auto;max-width:100%}.markdown-content :deep(th),.markdown-content :deep(td){border-bottom:1px solid var(--ph-line);padding:6px 10px}.markdown-content :deep(blockquote){border-left:3px solid var(--ph-line);padding-left:14px;color:var(--el-text-color-secondary)}
+@media(max-width:1100px){.skills-layout{grid-template-columns:minmax(220px,.7fr) minmax(0,1.2fr)}.skill-detail{padding:16px}}@media(max-width:900px){.skills-layout{grid-template-columns:1fr}.skills-toolbar{flex-wrap:wrap}.skills-filters{flex-basis:100%;justify-content:flex-start}.skills-filters>.el-input{flex:1;width:auto}.diff-columns{grid-template-columns:1fr}}
 @media(max-width:900px){.skills-page{overflow-y:auto}.skills-page>.skills-layout{display:block;flex:none;overflow:visible}.skills-layout>.skills-list,.skills-layout>.skill-detail{max-height:none;overflow:visible}.skills-layout>.skills-list{margin-bottom:18px}}
 </style>

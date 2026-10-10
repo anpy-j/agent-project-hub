@@ -65,6 +65,7 @@ export interface SkillsAPI {
   snapshot(): Promise<SkillSnapshot>
   preview(input: SkillImportInput): Promise<SkillPreview>
   scan(projectId?: string): Promise<SkillPreview>
+  describeCandidates(skills: Array<Pick<SkillCandidate, 'id' | 'name' | 'description'>>): Promise<{ descriptions: Record<string, string>; notice: string }>
   import(token: string, candidateIds: string[]): Promise<SkillPackage[]>
   discard(token: string): Promise<void>
   readFile(skillId: string, path: string): Promise<string>

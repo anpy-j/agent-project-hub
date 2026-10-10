@@ -7,10 +7,14 @@ import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // Bundle LinkeDOM's ESM entry and its ESM-only selector dependencies for Electron 31.
+    plugins: [externalizeDepsPlugin({ exclude: ['linkedom'] })],
     resolve: {
       alias: {
-        '@main': resolve('electron')
+        '@main': resolve('electron'),
+        // Article extraction needs DOM parsing, not native drawing. Resolve the optional
+        // canvas dependency to LinkeDOM's own fallback in development and production.
+        canvas: resolve('node_modules/linkedom/commonjs/canvas-shim.cjs')
       }
     },
     build: {

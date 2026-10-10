@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorkspaceStore } from './stores/workspace'
+import GlobalAgent from './components/GlobalAgent.vue'
 import { emitHotkey } from './composables/hotkeys'
 
 const route = useRoute()
@@ -23,8 +24,9 @@ const navGroups = [
   {
     label: 'AI',
     items: [
+      { path: '/ai/library', label: 'AI 资料库', icon: 'Reading' },
       { path: '/ai/skills', label: 'Skills 管理', icon: 'Collection' },
-      { path: '/ai/assistant', label: '技能助手', icon: 'MagicStick' }
+      { path: '/ai/openclaw', label: 'OpenClaw', icon: 'ChatDotRound' }
     ]
   },
   {
@@ -186,6 +188,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
         </router-view>
       </el-main>
     </div>
+
+    <GlobalAgent />
 
     <el-dialog v-model="helpVisible" title="键盘快捷键" width="420">
       <div class="shortcut-list">

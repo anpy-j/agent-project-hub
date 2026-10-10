@@ -32,6 +32,10 @@ import type {
 import type { DeploymentAPI } from '../types/deployment'
 
 export interface ProjectHubAPI {
+  library: import('../types/library').LibraryAPI
+  ragflow: import('../types/ragflow').RagflowAPI
+  openclaw: import('../types/openclaw').OpenClawAPI
+  agent: import('../types/agent').AgentAPI
   skills: import('../types/skills').SkillsAPI
   gitAuth: {
     snapshot: () => Promise<import('../types/git-auth').GitAuthSnapshot>
@@ -56,6 +60,9 @@ export interface ProjectHubAPI {
     remove: (id: string) => Promise<void>
     syncRemotes: (id: string) => Promise<Project | null>
     detect: (path: string) => Promise<DetectResult>
+    buildTargets: (id: string) => Promise<import('../types').BuildTarget[]>
+    flutterEnvironment: (id: string, target: import('../types').BuildTarget) => Promise<{ sdk: string; version: string; source: string; javaHome: string; javaVersion: string; androidSdk: string; errors: string[]; warnings: string[] }>,
+    saveBuildTargets: (id: string, targets: import('../types').BuildTarget[]) => Promise<void>
     buildCommand: (id: string) => Promise<string>
     runCommands: (id: string) => Promise<RunSuggestion[]>
     removeRunCommand: (id: string, cmd: string) => Promise<void>
@@ -95,8 +102,8 @@ export interface ProjectHubAPI {
   runner: {
     start: (projectId: string) => Promise<string>
     startCustom: (projectId: string, cmd: { bin: string; args: string[]; display?: string }) => Promise<string>
-    startBuild: (projectId: string) => Promise<string>
-    artifacts: (projectId: string) => Promise<ProjectArtifact[]>
+    startBuild: (projectId: string, targetId?: string) => Promise<string>
+    artifacts: (projectId: string, targetId?: string) => Promise<ProjectArtifact[]>
     probeExternal: (projectId: string) => Promise<{ running: boolean; processes: Array<{ pid: number; command: string }> }>
     stop: (taskId: string) => Promise<void>
     listRunning: () => Promise<TaskHistory[]>

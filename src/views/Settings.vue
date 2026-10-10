@@ -1,21 +1,28 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { nextTick, ref, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { Runtime, AiConfig, AiProviderOption, AiProvider, LogUsage, MaintenanceResult } from '../types'
 import PageHeader from '../components/PageHeader.vue'
+import AgentAiSettings from '../components/AgentAiSettings.vue'
 import GitAuthSettings from '../components/GitAuthSettings.vue'
+import RagflowSettings from '../components/RagflowSettings.vue'
 
 const route = useRoute()
 const activeSection = ref('git')
 const sections = [
   { id: 'git', title: '仓库认证', description: 'SSH 密钥与连接测试', icon: 'Key' },
   { id: 'ai', title: 'AI 服务', description: '模型与服务连接', icon: 'MagicStick' },
+  { id: 'knowledge', title: '知识库', description: 'RAGFlow 连接与文档', icon: 'Collection' },
   { id: 'runtime', title: '运行环境', description: '本机开发工具与版本', icon: 'Cpu' },
   { id: 'maintenance', title: '数据与日志', description: '存储用量与历史清理', icon: 'Document' }
 ]
 watch(() => route.query.section, section => {
   activeSection.value = sections.some(item => item.id === section) ? section as string : 'git'
+}, { immediate: true })
+
+watch(() => route.query.ai, async value => {
+  if (value === 'agent') { await nextTick(); document.getElementById('agent-ai-settings')?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }
 }, { immediate: true })
 
 // ---- 运行时管理 ----
@@ -207,13 +214,14 @@ onMounted(() => {
     </nav>
 
     <div class="settings-stack">
+      <RagflowSettings v-if="activeSection === 'knowledge'" />
       <GitAuthSettings v-show="activeSection === 'git'" />
       <!-- AI 设置 -->
       <el-card v-show="activeSection === 'ai'" v-loading="aiLoading">
         <template #header>
           <div class="card-head">
             <span class="card-title">
-              AI 服务配置
+              通用 AI 配置
               <span class="pill" :class="{ 'is-primary': aiConfigured }">
                 {{ savedSummary ? `已连接：${savedSummary}` : '未配置' }}
               </span>
@@ -234,7 +242,7 @@ onMounted(() => {
         style="margin-bottom: 14px"
       />
       <el-form label-width="100px" label-position="right">
-        <p class="form-tip">本项目所有内置 AI 功能统一使用此处保存的服务与模型配置。</p>
+        <p class="form-tip">通用 AI 用于磁盘分析、服务发现和技能解读。Agent 使用下方独立配置。</p>
         <el-form-item label="厂商">
           <el-select v-model="aiForm.provider" style="width: 280px">
             <el-option v-for="p in providers" :key="p.value" :label="p.label" :value="p.value" />
@@ -275,6 +283,8 @@ onMounted(() => {
         </el-form-item>
       </el-form>
       </el-card>
+
+      <AgentAiSettings v-show="activeSection === 'ai'" />
 
       <!-- 运行时管理 -->
       <el-card v-show="activeSection === 'runtime'">
@@ -328,7 +338,7 @@ onMounted(() => {
 }
 .settings-nav {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   flex-shrink: 0;
   margin-bottom: 18px;

@@ -15,7 +15,8 @@ import Services from './views/Services.vue'
 import DiskCleaner from './views/DiskCleaner.vue'
 import Delivery from './views/Delivery.vue'
 import Skills from './views/Skills.vue'
-import SkillsAssistant from './views/SkillsAssistant.vue'
+import OpenClaw from './views/OpenClaw.vue'
+import Library from './views/Library.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -34,8 +35,10 @@ const router = createRouter({
     { path: '/delivery', name: 'delivery', component: Delivery },
     { path: '/disk-cleaner', name: 'disk-cleaner', component: DiskCleaner },
     { path: '/settings', name: 'settings', component: Settings },
+    { path: '/ai/library', name: 'library', component: Library },
+    { path: '/ai/openclaw', name: 'openclaw', component: OpenClaw },
     { path: '/ai/skills', name: 'skills', component: Skills },
-    { path: '/ai/assistant', name: 'skills-assistant', component: SkillsAssistant },
+    { path: '/ai/assistant', redirect: to => ({ path: '/ai/skills', query: { projectId: to.query.projectId } }) },
     { path: '/ai/services', name: 'ai-services', redirect: { path: '/settings', query: { section: 'ai' } } }
   ]
 })

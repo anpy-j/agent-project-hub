@@ -245,3 +245,51 @@ test('download address policy excludes localhost, private and mapped IPv6 addres
   assert.ok(publicAddress('8.8.8.8'))
   assert.ok(publicAddress('2606:4700:4700::1111'))
 })
+
+
+test('metadata tolerates repeated carriage returns and clears cached parse warnings without rewriting files', async () => {
+  const f = fixture()
+  try {
+    mkdirSync(join(f.source, 'agents'))
+    const yaml = 'interface:\r\r\n  display_name: "中文技能名称"\r\r\n  short_description: "用途说明"\r\r\n'
+    writeFileSync(join(f.source, 'agents/openai.yaml'), yaml)
+    const skill = await f.imported()
+    assert.equal(skill.title, '中文技能名称')
+    assert.deepEqual(skill.warnings, [])
+    f.store.savePackage({ ...skill, title: '旧名称', warnings: ['agents/openai.yaml 无法解析；原文件会完整保留。', '保留其他警告'] })
+    const refreshed = f.manager.snapshot().skills[0]
+    assert.equal(refreshed.title, '中文技能名称')
+    assert.deepEqual(refreshed.warnings, ['保留其他警告'])
+    assert.equal(refreshed.hash, skill.hash)
+    assert.equal(f.manager.readFile(skill.id, 'agents/openai.yaml'), yaml)
+    writeFileSync(join(f.library, 'packages', skill.id, 'current', 'agents/openai.yaml'), 'interface: [')
+    f.store.savePackage({ ...skill, warnings: ['agents/openai.yaml 无法解析；原文件会完整保留。'] })
+    assert.ok(f.manager.snapshot().skills[0].warnings.includes('agents/openai.yaml 无法解析；原文件会完整保留。'))
+    assert.equal(manifest('---\r\r\nname: sample-skill\r\r\ndescription: 测试\r\r\n---\r\r\n# 中文标题', 'sample-skill').title, '中文标题')
+  } finally { f.cleanup() }
+})
+
+test('scan descriptions provide Chinese summaries and translate unknown skills in bounded batches', async () => {
+  const { describeSkills } = await import('../electron/services/skills-descriptions')
+  const skills = [
+    { id: 'image', name: 'imagegen', description: 'Generate images' },
+    { id: 'zh', name: 'chinese-skill', description: '整理项目文件。' },
+    { id: 'custom', name: 'custom-summary-test', description: 'Summarize project notes.' }
+  ]
+  const local = await describeSkills(skills)
+  assert.match(local.image, /生成或编辑图片/)
+  assert.equal(local.zh, '整理项目文件。')
+  assert.equal(local.custom, undefined)
+  let calls = 0
+  const translated = await describeSkills(skills, async content => {
+    calls++
+    const batch = JSON.parse(content)
+    assert.deepEqual(batch.map((s: { id: string }) => s.id), ['custom'])
+    return '```json\n[{"id":"custom","description":"汇总项目笔记。"},{"id":"invented","description":"未知技能。"}]\n```'
+  })
+  assert.equal(translated.custom, '汇总项目笔记。')
+  assert.equal(translated.invented, undefined)
+  assert.equal(calls, 1)
+  assert.equal((await describeSkills(skills)).custom, '汇总项目笔记。')
+  await assert.rejects(describeSkills([{ id: 'bad', name: 'invalid-summary-test', description: 'Unknown' }], async () => '{}'), /返回格式/)
+})

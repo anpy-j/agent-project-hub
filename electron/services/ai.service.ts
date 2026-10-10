@@ -137,7 +137,7 @@ export class AiService {
     return aiConfigRepo.get()
   }
 
-  saveConfig(data: AiConfig): AiConfig {
+  saveConfig(data: AiConfig, id = 'default'): AiConfig {
     if (!data.model?.trim()) throw new Error('请填写模型名称')
     const provider = AI_PROVIDERS.find((p) => p.value === data.provider)
     const baseUrl = (data.base_url || provider?.baseUrl || '').trim()
@@ -147,7 +147,7 @@ export class AiService {
       base_url: baseUrl.replace(/\/+$/, ''),
       api_key: (data.api_key || '').trim(),
       model: data.model.trim()
-    })
+    }, id)
   }
 
   private effectiveBase(cfg?: AiConfig): string {

@@ -62,7 +62,18 @@ export class SkillsManager {
       try { if (!existsSync(actual)) status = 'missing'; else if (skillHash(actual) !== i.hash) status = 'modified' } catch { status = 'modified' }
       return { ...i, status }
     })
-    return { skills: this.options.store.packages().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), installations, targets: this.targets, bundledPath: this.options.bundledRoot }
+    const skills = this.options.store.packages().map(skill => {
+      // Revalidate warnings cached by older parsers without changing package files or hashes.
+      if (!skill.warnings.includes('agents/openai.yaml 无法解析；原文件会完整保留。')) return skill
+      try {
+        const metadata = skillMetadata(this.packageRoot(skill.id))
+        if (metadata.warnings.includes('agents/openai.yaml 无法解析；原文件会完整保留。')) return skill
+        const value = { ...skill, title: metadata.title, warnings: [...skill.warnings.filter(w => w !== 'agents/openai.yaml 无法解析；原文件会完整保留。'), ...metadata.warnings.filter(w => !skill.warnings.includes(w))] }
+        this.options.store.savePackage(value)
+        return value
+      } catch { return skill }
+    })
+    return { skills: skills.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), installations, targets: this.targets, bundledPath: this.options.bundledRoot }
   }
   private newStage(): { token: string; stage: Stage } {
     for (const [token, stage] of this.stages) if (Date.now() - stage.created > 30 * 60 * 1000) this.discard(token)

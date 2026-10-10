@@ -65,6 +65,10 @@ watch(projectId, async id => {
   catch (error) { ElMessage.error(String(error)) }
   finally { if (request === configRequest) loadingConfig.value = false }
 })
+function agentContext(open = false) {
+  window.dispatchEvent(new CustomEvent('project-hub:agent-context', { detail: { projectId: projectId.value, hostId: tab.value === 'hosts' ? selectedHostId.value : config.value.hostId, open } }))
+}
+watch([projectId, selectedHostId, tab, () => config.value.hostId], () => agentContext())
 watch(selectedHostId, () => { snapshot.value = null; remoteLog.value = '' })
 function editRegistry(id?: string): void {
   const profile = registries.value.find(r => r.id === id)
@@ -145,7 +149,7 @@ services:
 
 <template>
   <div class="delivery-page">
-    <PageHeader title="镜像与服务器" subtitle="本地打包、镜像上传、SSH 部署，在一个工作台完成" />
+    <PageHeader title="镜像与服务器" subtitle="本地打包、镜像上传、SSH 部署，在一个工作台完成"><template #actions><el-button @click="agentContext(true)"><el-icon><MagicStick /></el-icon>交给 Agent</el-button></template></PageHeader>
     <div v-if="!bridgeReady" class="bridge-recovery">
       <el-alert type="warning" :closable="false" title="需要完整重启 Project Hub" description="页面已更新，但当前 Electron 进程仍使用旧版镜像发布接口。请退出应用，并在开发终端按 Ctrl+C 停止旧的 npm run dev，再重新启动。仅刷新页面无法更新主进程。" show-icon />
       <p>在项目目录重新运行：</p>
