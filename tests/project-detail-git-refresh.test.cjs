@@ -203,3 +203,23 @@ test('groups index and worktree changes independently, including partial staging
   assert.equal(unstaged.files.find(f => f.path === 'new.txt').displayStatus, '未跟踪')
   assert.equal(unstaged.files.find(f => f.path === 'conflict.txt').displayStatus, '冲突')
 })
+
+test('failed branch checkout restores the actual branch and keeps edit drafts', async () => {
+  const { page, errors } = createPage({
+    git: {
+      checkout: async () => { throw new Error('Local changes would be overwritten') },
+      summary: async () => ({ ...detail([]).git, branch: 'main' }), log: async () => [],
+      branches: async () => [{ name: 'main', current: true }, { name: 'feature', current: false }]
+    }
+  })
+  page.branches.value = [{ name: 'main', current: true }, { name: 'feature', current: false }]
+  page.selectedBranch.value = 'feature'
+  page.editForm.value = { name: 'draft name', description: 'draft description' }
+  page.commitMessage.value = 'draft commit'
+  await page.switchBranch('feature')
+  assert.equal(page.selectedBranch.value, 'main')
+  assert.equal(page.busy.value, '')
+  assert.equal(page.editForm.value.name, 'draft name')
+  assert.equal(page.commitMessage.value, 'draft commit')
+  assert.match(errors[0], /Local changes would be overwritten/)
+})

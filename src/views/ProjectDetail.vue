@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit as EditIcon, RefreshRight, Search, VideoPlay, VideoPause } from '@element-plus/icons-vue'
+import { Edit as EditIcon, RefreshRight, Search, VideoPlay, VideoPause, Share, CircleCheck, Upload, Download } from '@element-plus/icons-vue'
 import type { BuildTarget, GitBranch, GitCommit, GitSummary, LogChunk, Project, ProjectArtifact, RunSuggestion, TaskHistory, TaskItem } from '../types'
 
 const route = useRoute()
@@ -33,6 +33,7 @@ const linkForm = ref({ name: 'origin', url: '' })
 const branches = ref<GitBranch[]>([])
 const selectedBranch = ref('')
 const newBranch = ref('')
+const branchDialogVisible = ref(false)
 
 const runCommands = ref<RunSuggestion[]>([])
 const customCmd = ref('')
@@ -354,33 +355,38 @@ async function loadBranches() {
 }
 
 async function switchBranch(name: string) {
-  if (!name || name === branches.value.find((b) => b.current)?.name) return
+  const current = branches.value.find(b => b.current)?.name || ''
+  if (busy.value || !name || name === current) { selectedBranch.value = current; return }
+  busy.value = 'checkout'
   try {
     const msg = await window.api.git.checkout(projectId, name)
     ElMessage.success(msg)
-    await load()
-    await loadCommits()
-    await loadBranches()
   } catch (e) {
     ElMessage.error(`切换失败: ${(e as Error).message}`)
+  } finally {
+    await refreshGit()
+    busy.value = ''
   }
 }
 
 async function createBranch() {
+  if (busy.value) return
   const name = newBranch.value.trim()
   if (!name) {
     ElMessage.warning('请填写分支名')
     return
   }
+  busy.value = 'checkout'
   try {
     const msg = await window.api.git.checkout(projectId, name, true)
     ElMessage.success(msg)
     newBranch.value = ''
-    await load()
-    await loadCommits()
-    await loadBranches()
+    branchDialogVisible.value = false
   } catch (e) {
     ElMessage.error(`创建失败: ${(e as Error).message}`)
+  } finally {
+    await refreshGit()
+    busy.value = ''
   }
 }
 
@@ -1086,30 +1092,53 @@ onMounted(async () => {
             </div>
           </el-card>
 
-          <el-card class="block" v-if="git?.isGit">
+          <el-card class="block git-workspace" v-if="git?.isGit">
             <template #header><b>Git 工作区</b></template>
-            <el-tabs>
+            <div class="git-toolbar">
+              <div class="git-branch-control">
+                <el-icon class="git-branch-icon"><Share /></el-icon>
+                <el-select v-model="selectedBranch" class="git-branch-select" filterable :disabled="!!busy || !branches.length" :placeholder="git.branch || '切换分支'" aria-label="切换分支" @change="switchBranch">
+                  <el-option v-for="b in branches" :key="b.name" :label="b.name" :value="b.name">
+                    <span>{{ b.name }}</span><span v-if="b.current" class="git-current-branch">当前</span>
+                  </el-option>
+                </el-select>
+              </div>
+              <el-button size="small" text :disabled="!!busy" @click="branchDialogVisible = true">新建分支</el-button>
+              <el-tooltip content="刷新 Git 状态" placement="top">
+                <el-button class="git-refresh" size="small" text :icon="RefreshRight" :loading="gitRefreshing" :disabled="!!busy" aria-label="刷新 Git 状态" @click="refreshGit" />
+              </el-tooltip>
+            </div>
+            <el-alert v-if="gitWatchError" :title="gitWatchError" type="warning" :closable="false" class="git-watch-alert" />
+            <el-tabs class="git-tabs">
               <el-tab-pane label="变更与提交">
-                <div class="git-section-head">
-                  <b>未提交变更 <span class="type-chip">{{ git.changes.length }}</span></b>
-                  <el-button size="small" text :icon="RefreshRight" :loading="gitRefreshing" @click="refreshGit">刷新</el-button>
-                </div>
-                <div v-if="gitWatchError" class="tip-line">{{ gitWatchError }}</div>
-                <div v-for="group in changeGroups" :key="group.key" class="change-group" :class="'changes-' + group.key">
-                  <div class="git-section-head"><b>{{ group.title }} <span class="type-chip">{{ group.files.length }}</span></b></div>
-                  <div v-if="group.files.length" class="changes-list">
-                    <label v-for="f in group.files" :key="f.path" class="change-row">
-                      <el-checkbox :model-value="selectedChanges.has(f.path)" @change="toggleChange(f.path)" />
-                      <span class="type-chip">{{ f.displayStatus }}</span>
-                      <span class="remote-url" :title="f.path">{{ f.path }}</span>
-                    </label>
+                <div class="git-panel git-files-panel">
+                  <div class="git-panel-head"><b>文件变更</b><span class="git-meta">{{ git.changes.length }} 个文件</span></div>
+                  <div v-if="!git.changes.length" class="git-status-strip">
+                    <span v-for="group in changeGroups" :key="group.key"><i :class="group.key" />{{ group.title }}<b>{{ group.files.length }}</b></span>
                   </div>
-                  <div v-else class="tip-line">{{ group.empty }}</div>
+                  <div v-if="git.changes.length" class="git-change-groups">
+                    <div v-for="group in changeGroups" :key="group.key" class="change-group" :class="'changes-' + group.key">
+                      <div class="git-group-head"><span><i :class="group.key" />{{ group.title }}</span><span class="git-count">{{ group.files.length }}</span></div>
+                      <div v-if="group.files.length" class="changes-list">
+                        <label v-for="f in group.files" :key="f.path" class="change-row" :class="{ 'is-selected': selectedChanges.has(f.path) }">
+                          <el-checkbox :model-value="selectedChanges.has(f.path)" @change="toggleChange(f.path)" />
+                          <span class="git-file-status" :class="{ 'is-conflict': f.displayStatus === '冲突' }">{{ f.displayStatus }}</span>
+                          <span class="git-file-path" :title="f.path">{{ f.path }}</span>
+                        </label>
+                      </div>
+                      <div v-else class="git-group-empty">{{ group.empty }}</div>
+                    </div>
+                  </div>
+                  <div v-else class="git-clean-state">
+                    <el-icon><CircleCheck /></el-icon>
+                    <div><b>工作区干净</b><span>保存代码后，变更会自动显示在这里</span></div>
+                  </div>
+                  <div v-if="changeGroups[0].files.some(f => f.worktreeStatus)" class="git-note">暂存后继续修改的文件会同时出现在两组中。</div>
                 </div>
-                <div v-if="!git.changes.length" class="tip-line" style="padding: 4px 0 8px">工作区干净，没有未提交变更</div>
-                <div v-if="changeGroups[0].files.some(f => f.worktreeStatus)" class="tip-line" style="padding-bottom: 8px">暂存后继续修改的文件会同时出现在两组中。</div>
-                <el-input v-model="commitMessage" placeholder="提交说明，如 feat: 新增 xx 功能" />
-                <div class="btn-row" style="margin-top: 10px">
+                <div class="git-commit-editor">
+                  <label class="git-editor-label" for="git-commit-message">提交说明<span v-if="selectedChanges.size">已选择 {{ selectedChanges.size }} 个文件</span></label>
+                  <el-input id="git-commit-message" v-model="commitMessage" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" resize="none" placeholder="提交说明，如 feat: 新增 xx 功能" />
+                  <div class="git-commit-actions">
                   <el-button
                     size="small" type="primary" :loading="busy === 'commit'"
                     :disabled="!!busy || !commitMessage.trim() || !git.changes.length"
@@ -1122,39 +1151,38 @@ onMounted(async () => {
                     @click="doCommit(false, true)"
                   >提交所选 {{ selectedChanges.size }} 个</el-button>
                   <el-button
-                    size="small" type="success" :loading="busy === 'commit-push'"
+                    size="small" type="primary" plain :loading="busy === 'commit-push'"
                     :disabled="!!busy || !commitMessage.trim() || !git.changes.length"
                     @click="commitAndPush"
-                  >提交全部并推送</el-button>
-                  <el-button size="small" :disabled="!!busy" :loading="busy === 'pull'" @click="doPull">拉取</el-button>
-                  <el-button size="small" :disabled="!!busy" :loading="busy === 'push'" @click="doPush">推送</el-button>
-                </div>
-                <el-divider />
-                <div class="git-section-head">
-                  <b>待推送提交 <span class="type-chip">{{ git.ahead }}</span></b>
-                  <span v-if="git.upstream" class="tip-line">上游：{{ git.upstream }}</span>
-                </div>
-                <div v-if="!git.upstream" class="tip-line">当前分支未设置上游，按本地已知的远程引用识别待推送提交。</div>
-                <div v-if="git.pendingCommits?.length" class="commit-list">
-                  <div v-for="c in git.pendingCommits" :key="c.hash" class="commit-row">
-                    <span class="mono">{{ c.hash }}</span>
-                    <span class="commit-msg" :title="c.message">{{ c.message }}</span>
-                    <span class="time">{{ c.author }} · {{ fmtTime(c.date) }}</span>
+                  >提交并推送</el-button>
                   </div>
                 </div>
-                <div v-else class="tip-line" style="padding: 8px 0">没有待推送提交</div>
-                <div v-if="git.ahead > (git.pendingCommits?.length || 0)" class="tip-line">仅展示最近 {{ git.pendingCommits?.length || 0 }} 条，共 {{ git.ahead }} 条待推送提交</div>
-                <div v-if="git.behind" class="tip-line">落后上游 {{ git.behind }} 条提交，可拉取更新</div>
-                <div class="tip-line">状态依据本地远程引用；拉取或外部 fetch 后会自动更新。</div>
-              </el-tab-pane>
-              <el-tab-pane label="远程与分支">
-                <div class="branch-row">
-                  <el-select v-if="branches.length" v-model="selectedBranch" size="small" style="width: 180px" placeholder="切换分支" @change="switchBranch">
-                    <el-option v-for="b in branches" :key="b.name" :label="b.name + (b.current ? '（当前）' : '')" :value="b.name" />
-                  </el-select>
-                  <el-input v-model="newBranch" size="small" placeholder="新分支名" style="width: 140px" @keyup.enter="createBranch" />
-                  <el-button size="small" @click="createBranch">创建并切换</el-button>
+                <div class="git-panel git-push-panel">
+                  <div class="git-panel-head">
+                    <b>待推送提交 <span class="git-count" :class="{ 'has-pending': git.ahead }">{{ git.ahead }}</span></b>
+                    <div class="git-sync-actions">
+                      <el-button size="small" text :icon="Download" :disabled="!!busy" :loading="busy === 'pull'" @click="doPull">拉取</el-button>
+                      <el-button size="small" text :icon="Upload" :disabled="!!busy" :loading="busy === 'push'" @click="doPush">推送</el-button>
+                    </div>
+                  </div>
+                  <div v-if="git.pendingCommits?.length" class="commit-list">
+                    <div v-for="c in git.pendingCommits" :key="c.hash" class="git-pending-row">
+                      <span class="git-commit-dot" />
+                      <div class="git-pending-content"><b :title="c.message">{{ c.message }}</b><span>{{ c.author }} · {{ fmtTime(c.date) }}</span></div>
+                      <span class="mono git-short-hash">{{ c.hash }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="git-synced-state"><el-icon><CircleCheck /></el-icon><span>没有待推送提交</span></div>
+                  <div v-if="git.ahead > (git.pendingCommits?.length || 0)" class="git-note">最近 {{ git.pendingCommits?.length || 0 }} 条 / 共 {{ git.ahead }} 条待推送</div>
+                  <div v-if="git.behind" class="git-note">落后上游 {{ git.behind }} 条提交，可拉取更新</div>
+                  <div class="git-tracking">
+                    <span v-if="git.upstream" class="mono" :title="git.upstream"><el-icon><Share /></el-icon>{{ git.upstream }}</span>
+                    <span v-else>未设置上游分支</span>
+                    <el-tooltip :content="git.upstream ? '根据本地远程引用判断；拉取或 fetch 后更新远端状态。' : '未设置上游，按本地已知的远程引用识别待推送提交。首次推送会建立 origin 跟踪。'" placement="top"><span class="git-reference-hint">本地同步状态</span></el-tooltip>
+                  </div>
                 </div>
+              </el-tab-pane>
+              <el-tab-pane label="远程仓库">
                 <div class="sub-title">远程仓库</div>
                 <el-empty v-if="!project.remotes?.length" description="未关联远程仓库" :image-size="50" />
                 <div v-for="r in project.remotes" :key="r.id" class="remote-row">
@@ -1180,6 +1208,11 @@ onMounted(async () => {
                 </div>
               </el-tab-pane>
             </el-tabs>
+            <el-dialog v-model="branchDialogVisible" title="创建分支" width="380px" :close-on-click-modal="busy !== 'checkout'" :close-on-press-escape="busy !== 'checkout'" :show-close="busy !== 'checkout'">
+              <div class="git-dialog-note">从当前分支 {{ git.branch }} 创建并切换到新分支。</div>
+              <el-input v-model="newBranch" placeholder="分支名称，如 feature/login" :disabled="!!busy" @keyup.enter="createBranch" />
+              <template #footer><el-button :disabled="!!busy" @click="branchDialogVisible = false">取消</el-button><el-button type="primary" :loading="busy === 'checkout'" :disabled="!!busy || !newBranch.trim()" @click="createBranch">创建并切换</el-button></template>
+            </el-dialog>
           </el-card>
 
           <el-card class="block" v-if="!git?.isGit">
@@ -1423,8 +1456,68 @@ onMounted(async () => {
 .field-row .el-input { flex: 1; }
 .hash { color: var(--el-color-primary); font-weight: 600; font-size: 12px; background: var(--el-fill-color); border-radius: 4px; padding: 1px 6px; flex-shrink: 0; }
 .commit-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; }
-.git-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
-.change-group { margin-bottom: 12px; }
+.git-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 9px 10px; background: var(--el-fill-color-light); border: 1px solid var(--el-border-color-lighter); border-radius: 10px; }
+.git-branch-control { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.git-branch-icon { color: var(--el-color-primary); font-size: 17px; flex-shrink: 0; }
+.git-branch-select { width: 100%; min-width: 0; max-width: 230px; }
+.git-branch-select :deep(.el-select__wrapper) { background: transparent; box-shadow: none; padding-left: 0; }
+.git-branch-select :deep(.el-select__selected-item) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 600; }
+.git-toolbar .el-button { margin-left: 0; flex-shrink: 0; }
+.git-current-branch { float: right; margin-left: 20px; font-size: 11px; color: var(--el-color-primary); }
+.git-tabs :deep(.el-tabs__header) { margin-bottom: 16px; }
+.git-tabs :deep(.el-tabs__item) { font-size: 13px; }
+.git-panel { border: 1px solid var(--el-border-color-lighter); border-radius: 10px; overflow: hidden; }
+.git-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; }
+.git-panel-head > b { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.git-meta { font-size: 11px; color: var(--el-text-color-secondary); }
+.git-status-strip { display: flex; gap: 20px; padding: 0 14px 12px; border-bottom: 1px solid var(--el-border-color-lighter); }
+.git-status-strip > span { display: flex; align-items: center; gap: 7px; color: var(--el-text-color-secondary); font-size: 12px; }
+.git-status-strip b { color: var(--el-text-color-regular); font-weight: 500; }
+.git-status-strip i, .git-group-head i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+i.staged { background: var(--el-color-success); }
+i.unstaged { background: var(--el-color-warning); }
+.git-clean-state { display: flex; align-items: center; gap: 12px; padding: 22px 16px; }
+.git-clean-state > .el-icon { font-size: 24px; color: var(--el-color-success); }
+.git-clean-state > div { display: flex; flex-direction: column; gap: 5px; }
+.git-clean-state b { font-size: 13px; font-weight: 500; }
+.git-clean-state span { font-size: 11px; color: var(--el-text-color-secondary); }
+.git-change-groups { border-top: 1px solid var(--el-border-color-lighter); }
+.change-group + .change-group { border-top: 1px solid var(--el-border-color-lighter); }
+.git-group-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--el-fill-color-lighter); font-size: 12px; }
+.git-group-head > span:first-child { display: flex; align-items: center; gap: 7px; }
+.git-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; padding: 1px 6px; border-radius: 5px; font-size: 11px; font-weight: 500; color: var(--el-text-color-secondary); background: var(--el-fill-color); }
+.git-count.has-pending { color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.git-group-empty { padding: 10px 14px; font-size: 11px; color: var(--el-text-color-placeholder); }
+.git-workspace .changes-list { gap: 0; margin: 0; max-height: 210px; }
+.git-workspace .change-row { border: none; border-radius: 0; padding: 3px 14px; gap: 9px; }
+.git-workspace .change-row:hover, .git-workspace .change-row.is-selected { background: var(--el-fill-color-light); }
+.git-file-status { flex-shrink: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; color: var(--el-color-warning); min-width: 14px; }
+.changes-staged .git-file-status { color: var(--el-color-success); }
+.git-file-status.is-conflict { color: var(--el-color-danger); }
+.git-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--el-text-color-regular); }
+.git-commit-editor { margin: 17px 0; }
+.git-editor-label { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; color: var(--el-text-color-regular); }
+.git-editor-label > span { color: var(--el-color-primary); font-size: 11px; }
+.git-commit-editor :deep(.el-textarea__inner) { padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.7; background: var(--el-fill-color-lighter); }
+.git-commit-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.git-commit-actions .el-button, .git-sync-actions .el-button { margin-left: 0; }
+.git-workspace .el-button.is-disabled { opacity: 0.45; }
+.git-sync-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.git-push-panel .git-panel-head { padding: 9px 14px; }
+.git-synced-state { display: flex; align-items: center; gap: 7px; padding: 5px 14px 16px; font-size: 12px; color: var(--el-text-color-secondary); }
+.git-synced-state .el-icon { color: var(--el-color-success); }
+.git-pending-row { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-top: 1px solid var(--el-border-color-lighter); }
+.git-commit-dot { width: 7px; height: 7px; border: 2px solid var(--el-color-primary); border-radius: 50%; flex-shrink: 0; }
+.git-pending-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.git-pending-content b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
+.git-pending-content > span, .git-short-hash { font-size: 11px; color: var(--el-text-color-secondary); }
+.git-short-hash { flex-shrink: 0; }
+.git-tracking { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 14px; background: var(--el-fill-color-lighter); border-top: 1px solid var(--el-border-color-lighter); font-size: 11px; color: var(--el-text-color-secondary); }
+.git-tracking > span:first-child { display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.git-reference-hint { flex-shrink: 0; cursor: help; color: var(--el-text-color-placeholder); }
+.git-note { padding: 9px 14px; font-size: 11px; line-height: 1.6; color: var(--el-text-color-secondary); }
+.git-watch-alert { margin-bottom: 12px; }
+.git-dialog-note { margin-bottom: 14px; font-size: 12px; color: var(--el-text-color-secondary); }
 .commit-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--el-border-color-lighter); font-size: 13px; }
 .commit-row:last-child { border-bottom: none; }
 .commit-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--el-text-color-regular); }
@@ -1443,7 +1536,6 @@ onMounted(async () => {
 .tip-line { font-size: 12px; color: var(--el-text-color-secondary); }
 .tip-alert { margin-bottom: 12px; }
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.branch-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .changes-list { max-height: 180px; overflow-y: auto; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
 .change-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--el-border-color-light); border-radius: 8px; cursor: pointer; transition: border-color 0.15s ease; }
 .change-row:hover { border-color: var(--el-color-primary-light-5); }

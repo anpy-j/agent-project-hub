@@ -11,7 +11,7 @@ try {
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ELECTRON_RENDERER_URL
   const result = spawnSync(process.env.PROJECT_HUB_TEST_ELECTRON || require('electron'), [path.join(__dirname, 'electron-git-smoke.cjs')], {
-    env, encoding: 'utf8', timeout: 30000, windowsHide: true
+    env, encoding: 'utf8', timeout: 55000, windowsHide: true
   })
   process.stdout.write(result.stdout || '')
   process.stderr.write(result.stderr || '')

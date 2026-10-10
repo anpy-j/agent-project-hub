@@ -7,6 +7,8 @@ import { useProjectStore } from '../stores/project'
 import type { Project, LogChunk, RunSuggestion, TaskHistory } from '../types'
 import ConsolePanel from '../components/ConsolePanel.vue'
 import AddProjectDialog from '../components/AddProjectDialog.vue'
+import ProjectGitStatus from '../components/ProjectGitStatus.vue'
+import { useProjectGitStatus } from '../composables/useProjectGitStatus'
 import { onHotkey } from '../composables/hotkeys'
 
 const router = useRouter()
@@ -64,6 +66,7 @@ const filteredProjects = computed(() =>
     ? projectStore.projects.filter((p) => p.workspace_id === workspaceStore.currentId)
     : projectStore.projects
 )
+const { summaries: gitSummaries, errors: gitErrors } = useProjectGitStatus(filteredProjects)
 
 const baseRows = computed(() => {
   const k = keyword.value.trim().toLowerCase()
@@ -193,7 +196,11 @@ function timeAgo(iso: string | null): string {
 }
 
 function onRowMenu(cmd: string, row: Project) {
-  if (cmd === 'finder') {
+  if (cmd === 'run') {
+    void openRunDialog(row)
+  } else if (cmd === 'stop') {
+    void stopProject(row)
+  } else if (cmd === 'finder') {
     openInFinder(row)
   } else if (cmd === 'rename') {
     openRename(row)
@@ -351,7 +358,7 @@ onHotkey('new-project', () => {
             empty-text="暂无项目，点击右上角添加"
             @row-click="(row: unknown) => router.push(`/projects/${(row as Project).id}`)"
           >
-            <el-table-column label="项目" min-width="240">
+            <el-table-column label="项目" min-width="210">
               <template #default="{ row }">
                 <div class="cell-project">
                   <div class="proj-name">
@@ -361,7 +368,7 @@ onHotkey('new-project', () => {
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="项目语言" min-width="150">
+            <el-table-column label="项目语言" min-width="120">
               <template #default="{ row }">
                 <div class="cell-language">
                   <span class="type-chip">{{ typeLabel[row.type] || row.type }}</span>
@@ -369,12 +376,12 @@ onHotkey('new-project', () => {
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="path" label="项目路径" min-width="240" show-overflow-tooltip>
+            <el-table-column prop="path" label="项目路径" min-width="180" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="project-path-text">{{ row.path }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="远程仓库" min-width="180">
+            <el-table-column label="远程仓库" min-width="160">
               <template #default="{ row }">
                 <div v-if="(row as Project).remotes && (row as Project).remotes!.length" class="cell-remote">
                   <span class="type-chip">{{ platformLabel(row as Project) }}</span>
@@ -409,26 +416,18 @@ onHotkey('new-project', () => {
                 <span class="cell-time">{{ timeAgo(row.last_run_at || row.updated_at) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="230" align="left">
+            <el-table-column label="代码状态 / 操作" width="250" align="left" fixed="right">
               <template #default="{ row }">
                 <div class="cell-actions" @click.stop>
-                  <el-button
-                    v-if="!runningTasks[row.id]"
-                    type="primary"
-                    size="small"
-                    @click.stop="openRunDialog(row as Project)"
-                  >
-                    运行
-                  </el-button>
-                  <el-button v-else type="danger" size="small" @click.stop="stopProject(row as Project)">
-                    停止
-                  </el-button>
+                  <ProjectGitStatus :summary="gitSummaries[row.id]" :error="gitErrors[row.id]" @click="router.push(`/projects/${row.id}`)" />
                   <el-dropdown trigger="click" @command="(cmd: string) => onRowMenu(cmd, row as Project)">
-                    <el-button size="small" @click.stop>
+                    <el-button size="small" :aria-label="`${displayName(row as Project)}的项目菜单`" @click.stop>
                       <el-icon><MoreFilled /></el-icon>
                     </el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
+                        <el-dropdown-item v-if="!runningTasks[row.id]" command="run">运行项目</el-dropdown-item>
+                        <el-dropdown-item v-else command="stop">停止运行</el-dropdown-item>
                         <el-dropdown-item command="finder">打开目录</el-dropdown-item>
                         <el-dropdown-item command="rename">中文名</el-dropdown-item>
                         <el-dropdown-item command="remove" divided>删除项目</el-dropdown-item>
@@ -479,24 +478,16 @@ onHotkey('new-project', () => {
             </div>
             <div class="card-foot">
               <span class="cell-time">{{ timeAgo(p.last_run_at || p.updated_at) }}</span>
-              <div class="actions">
-                <el-button
-                  v-if="!runningTasks[p.id]"
-                  type="primary"
-                  size="small"
-                  @click.stop="openRunDialog(p)"
-                >
-                  <el-icon><VideoPlay /></el-icon>运行
-                </el-button>
-                <el-button v-else type="danger" size="small" @click.stop="stopProject(p)">
-                  <el-icon><VideoPause /></el-icon>停止
-                </el-button>
+              <div class="actions" @click.stop>
+                <ProjectGitStatus :summary="gitSummaries[p.id]" :error="gitErrors[p.id]" @click="router.push(`/projects/${p.id}`)" />
                 <el-dropdown trigger="click" @command="(cmd: string) => onRowMenu(cmd, p)">
-                  <el-button size="small" @click.stop>
+                  <el-button size="small" :aria-label="`${displayName(p)}的项目菜单`" @click.stop>
                     <el-icon><MoreFilled /></el-icon>
                   </el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
+                      <el-dropdown-item v-if="!runningTasks[p.id]" command="run">运行项目</el-dropdown-item>
+                      <el-dropdown-item v-else command="stop">停止运行</el-dropdown-item>
                       <el-dropdown-item command="finder">打开目录</el-dropdown-item>
                       <el-dropdown-item command="rename">中文名</el-dropdown-item>
                       <el-dropdown-item command="remove" divided>删除项目</el-dropdown-item>
@@ -736,8 +727,11 @@ onHotkey('new-project', () => {
 .cell-actions {
   display: flex;
   gap: 6px;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: space-between;
 }
+.cell-actions :deep(.project-git-status) { flex: 1; }
+.cell-actions .el-dropdown, .actions .el-dropdown { flex-shrink: 0; }
 .text-muted {
   color: var(--el-text-color-secondary);
 }
@@ -858,7 +852,9 @@ onHotkey('new-project', () => {
 .actions {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
 }
 .run-cmd-row {
   display: flex;
