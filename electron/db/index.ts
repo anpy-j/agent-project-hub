@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
-import { mkdirSync } from 'fs'
+import { mkdirSync, existsSync, copyFileSync } from 'fs'
 import { SCHEMA_SQL, SEED_SQL, BUILD_TARGET_SCHEMA } from './schema'
 
 let db: Database.Database | null = null
@@ -9,9 +9,21 @@ let db: Database.Database | null = null
 export function getDb(): Database.Database {
   if (db) return db
   const userData = app.getPath('userData')
-  const dbDir = join(userData, 'data')
+  const isolatedRun = Object.keys(process.env).some(key => /^PROJECT_HUB_.*(?:SMOKE_DIR|STARTUP_DIR)$/.test(key))
+  const dbDir = process.env.PROJECT_HUB_DB_DIR || join(app.isPackaged || isolatedRun ? userData : app.getAppPath(), 'data')
   mkdirSync(dbDir, { recursive: true })
   const dbPath = join(dbDir, 'project-hub.db')
+  if (!existsSync(dbPath)) {
+    const initialDb = app.isPackaged ? join(process.resourcesPath, 'data', 'project-hub.db') : join(userData, 'data', 'project-hub.db')
+    if (!isolatedRun && initialDb !== dbPath && existsSync(initialDb)) {
+      if (app.isPackaged) copyFileSync(initialDb, dbPath)
+      else {
+        // SQLite creates a consistent snapshot, including pending WAL transactions.
+        const previous = new Database(initialDb, { readonly: true })
+        try { previous.exec(`VACUUM INTO '${dbPath.replace(/'/g, "''")}'`) } finally { previous.close() }
+      }
+    }
+  }
   db = new Database(dbPath)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')

@@ -13,6 +13,7 @@ try {
   process.stderr.write(result.stderr || '')
   if (fs.existsSync(path.join(temporary, 'openclaw-preview.png'))) fs.copyFileSync(path.join(temporary, 'openclaw-preview.png'), '/tmp/project-hub-openclaw-preview.png')
   if (fs.existsSync(path.join(temporary, 'openclaw-chat-preview.png'))) fs.copyFileSync(path.join(temporary, 'openclaw-chat-preview.png'), '/tmp/project-hub-openclaw-chat-preview.png')
+  if (fs.existsSync(path.join(temporary, 'openclaw-http-preview.png'))) fs.copyFileSync(path.join(temporary, 'openclaw-http-preview.png'), '/tmp/project-hub-openclaw-http-preview.png')
   if (result.error) throw result.error
   if (result.status !== 0) process.exitCode = result.status ?? 1
 } finally {

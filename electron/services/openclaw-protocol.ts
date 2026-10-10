@@ -51,7 +51,7 @@ export class GatewayConnection {
         try { frame = JSON.parse(raw.toString()) } catch { return }
         if (frame.type === 'event' && frame.event === 'connect.challenge') {
           if (!frame.payload?.nonce) { finish(new Error('Gateway 未提供设备验证 nonce')); return }
-          void this.request('connect', connectParams(this.identity, frame.payload.nonce, this.token, process.platform, Date.now(), this.authMode, this.permissions)).then(hello => finish(undefined, hello), error => finish(error))
+          void this.request('connect', connectParams(this.identity, frame.payload.nonce, this.token, process.platform, typeof frame.payload.ts === 'number' ? frame.payload.ts : Date.now(), this.authMode, this.permissions)).then(hello => finish(undefined, hello), error => finish(error))
         } else if (frame.type === 'res') {
           const request = this.pending.get(frame.id)
           if (!request) return

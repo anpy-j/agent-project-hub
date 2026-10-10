@@ -7,7 +7,9 @@ export interface OpenClawConnection {
   instanceId: string; status: 'disconnected' | 'connecting' | 'connected' | 'error'; error: string; version?: string; deviceId?: string; methods?: string[]; scopes?: string[]; verified?: boolean
 }
 export interface OpenClawEvent { instanceId: string; event: string; payload: any }
+export interface OpenClawModels { current: string; models: { key: string; name: string; available: boolean }[] }
 export interface OpenClawAPI {
+  models(id: string, selection?: string): Promise<OpenClawModels>
   list(): Promise<OpenClawInstance[]>
   save(input: OpenClawInput): Promise<OpenClawInstance>
   remove(id: string): Promise<void>

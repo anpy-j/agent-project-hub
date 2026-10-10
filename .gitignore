@@ -5,3 +5,7 @@ dist
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
+
+# Local personal data and packaging snapshots
+data/*.db*
+.packaging-data/

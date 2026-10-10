@@ -30,6 +30,7 @@ const api: ProjectHubAPI = {
     open: () => invoke('ragflow:open')
   },
   openclaw: {
+    models: (id, selection) => invoke('openclaw:models', id, selection),
     list: () => invoke('openclaw:list'), save: input => invoke('openclaw:save', input),
     remove: id => invoke('openclaw:remove', id), discover: () => invoke('openclaw:discover'),
     connections: () => invoke('openclaw:connections'), connect: id => invoke('openclaw:connect', id),

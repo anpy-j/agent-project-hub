@@ -6,7 +6,7 @@ import { join, isAbsolute } from 'path'
 import { createServer, type Server } from 'net'
 import { execFile } from 'child_process'
 import type { Client } from 'ssh2'
-import type { OpenClawConnection, OpenClawEvent, OpenClawInput, OpenClawInstance } from '../../src/types/openclaw'
+import type { OpenClawConnection, OpenClawEvent, OpenClawInput, OpenClawInstance, OpenClawModels } from '../../src/types/openclaw'
 import { deploymentStore } from './deployment-store'
 import { connectHost, sshExec } from './deployment-ssh'
 import { completeHttpChat, normalizeChatUrl } from './openclaw-http'
@@ -93,6 +93,7 @@ export const openclawService = {
     if (input.managementPort !== undefined && (!Number.isInteger(input.managementPort) || input.managementPort < 1 || input.managementPort > 65535)) throw new Error('服务端口无效')
     if (input.authMode && !['token', 'password'].includes(input.authMode)) throw new Error('无效鉴权方式')
     if (operations.has(input.id)) throw new Error('请等待服务操作完成')
+    if ([...httpRuns.keys()].some(key => key.startsWith(`${input.id}\n`))) throw new Error('请等待当前回复结束或停止回复后再编辑连接')
     if (input.transport === 'ssh' || (input.transport === 'http' && input.management === 'ssh')) deploymentStore.host(input.hostId)
     if (input.cliPath && input.cliPath !== 'openclaw' && !isAbsolute(input.cliPath)) throw new Error('CLI 路径请填写绝对路径')
     if (input.token && (typeof input.token !== 'string' || input.token.length > 16384)) throw new Error('Token 格式无效')
@@ -101,7 +102,7 @@ export const openclawService = {
     const same = existing?.url === url && existing?.transport === input.transport && (input.transport === 'http' || existing?.hostId === input.hostId) && (existing?.authMode || 'token') === (input.authMode || 'token')
     const credential = input.clearToken ? '' : input.token ? encrypt(input.transport === 'http' ? input.token.trim().replace(/^Bearer\s+/i, '') : input.token.trim()) : same ? existing!.credential : ''
     const row: Stored = { id: existing?.id || randomUUID(), name: input.name.trim(), transport: input.transport, url, hostId: input.transport === 'ssh' || (input.transport === 'http' && input.management === 'ssh') ? input.hostId : '', cliPath: input.cliPath || 'openclaw', authMode: input.authMode || 'token', hasToken: !!credential, credential, identity: identity ? encrypt(JSON.stringify(identity)) : '', model: input.transport === 'http' ? input.model!.trim() : undefined, stream: input.stream !== false, management: input.management || 'none', managementPort: input.managementPort || 18789, adminAccess: !!input.adminAccess, pairingAccess: !!input.pairingAccess }
-    this.disconnect(row.id); rows = existing ? load().map(r => r.id === row.id ? row : r) : [...load(), row]; persist(); return publicRow(row)
+    this.disconnect(row.id); connections.delete(row.id); emit(row.id, 'connection', { instanceId: row.id, status: 'disconnected', error: '' }); rows = existing ? load().map(r => r.id === row.id ? row : r) : [...load(), row]; persist(); return publicRow(row)
   },
   remove(id: string): void { if (operations.has(id)) throw new Error('请等待服务操作完成'); this.disconnect(id); rows = load().filter(r => r.id !== id); persist() },
   async discover(): Promise<OpenClawInstance> {
@@ -218,6 +219,57 @@ export const openclawService = {
         }
       } finally { ssh.end() }
     } finally { operations.delete(id) }
+  },
+  async models(id: string, selection?: string): Promise<OpenClawModels> {
+    const row = get(id)
+    if (row.transport === 'http' && !['local', 'ssh'].includes(row.management || 'none')) throw new Error('HTTP 模型管理需要绑定本机或 SSH 主机，请先编辑连接')
+    if (selection !== undefined && (typeof selection !== 'string' || !selection || selection.length > 300)) throw new Error('无效模型')
+    if (operations.has(id)) throw new Error('请等待当前管理操作完成')
+    operations.add(id)
+    let ssh: Client | undefined
+    try {
+      const entry = connections.get(id)
+      if (row.transport !== 'http' && (row.transport === 'direct' || entry?.state.status === 'connected')) {
+        if (entry?.state.status !== 'connected' || !entry.client) throw new Error('请先连接当前 OpenClaw Gateway')
+        if (!entry.state.scopes?.includes('operator.admin')) throw new Error('模型配置需要 operator.admin 权限，请在编辑连接中申请配置管理权限，服务端批准后重新连接')
+        const client = entry.client
+        const snapshot = await client.request('config.get', {})
+        const primary = (config: any): string => {
+          const model = config?.agents?.defaults?.model
+          return typeof model === 'string' ? model : typeof model?.primary === 'string' ? model.primary : ''
+        }
+        const catalog = await client.request('models.list', { view: 'configured' })
+        if (!Array.isArray(catalog.models)) throw new Error('Gateway 未返回模型列表，请检查服务端版本')
+        const models: OpenClawModels['models'] = catalog.models.filter((m: any) => typeof m.id === 'string' && typeof m.provider === 'string').map((m: any) => ({ key: `${m.provider}/${m.id}`, name: typeof m.name === 'string' ? m.name : m.id, available: m.available !== false }))
+        const current = primary(snapshot.config)
+        if (selection === undefined || selection === current) return { current, models }
+        if (!models.some(m => m.key === selection && m.available)) throw new Error('请选择服务端已配置且可用的模型，刷新列表后重试')
+        if (typeof snapshot.hash !== 'string' || !snapshot.hash) throw new Error('Gateway 未返回配置版本，不能安全切换模型')
+        const result = await client.request('config.patch', { baseHash: snapshot.hash, raw: JSON.stringify({ agents: { defaults: { model: { primary: selection } } } }), note: 'Project Hub 切换默认模型' })
+        if (primary(result.config) !== selection) throw new Error('已提交切换，但 Gateway 未确认默认模型，请刷新检查')
+        return { current: selection, models }
+      }
+      const local = row.transport === 'local' || (row.transport === 'http' && row.management === 'local')
+      if (!local) ssh = await connectHost(deploymentStore.host(row.hostId), deploymentStore.hostSecret(row.hostId))
+      const execute = (args: string[]) => local ? localCli(row, args) : sshExec(ssh!, `${quote(row.cliPath)} ${args.map(quote).join(' ')}`)
+      verifyServiceTarget(row, await execute(['gateway', 'status', '--json']))
+      const read = async (): Promise<OpenClawModels> => {
+        const result = parseStatus(await execute(['models', 'list', '--json']))
+        if (!Array.isArray(result.models)) throw new Error('服务端未返回模型列表，请检查 OpenClaw 版本')
+        const models = result.models.filter((m: any) => typeof m.key === 'string').map((m: any) => ({ key: m.key, name: typeof m.name === 'string' ? m.name : m.key, available: m.available !== false }))
+        const current = result.models.find((m: any) => Array.isArray(m.tags) && m.tags.includes('default'))?.key || ''
+        return { models, current }
+      }
+      const before = await read()
+      if (selection === undefined) return before
+      if (!before.models.some(m => m.key === selection && m.available)) throw new Error('请选择服务端已配置且可用的模型，刷新列表后重试')
+      if (before.current === selection) return before
+      await execute(['models', 'set', selection])
+      const after = await read()
+      if (after.current !== selection) throw new Error('已提交切换，但服务端未确认默认模型，请刷新检查')
+      return after
+    } catch (error) { throw new Error(redact(row, (error as Error).message)) }
+    finally { ssh?.end(); operations.delete(id) }
   },
   async httpRequest(row: Stored, method: string, params: Record<string, unknown>): Promise<any> {
     const id = row.id

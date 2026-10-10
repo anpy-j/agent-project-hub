@@ -51,7 +51,7 @@ export const useOpenClawStore = defineStore('openclaw', () => {
         const { instanceId: id, event, payload: p } = value
         if (event === 'connection') {
           states.value[id] = p
-          if (p.status === 'connected') { void refresh(id).catch(() => {}); const session = activeSession.value[id]; if (session && instances.value.find(row => row.id === id)?.transport !== 'http') void history(id, session).catch(() => {}) }
+          if (p.status === 'connected' && instances.value.some(row => row.id === id)) { void refresh(id).catch(() => {}); const session = activeSession.value[id]; if (session && instances.value.find(row => row.id === id)?.transport !== 'http') void history(id, session).catch(() => {}) }
           if (p.status === 'error' || p.status === 'disconnected') {
             approvals.value[id] = []; approvalRevision[id] = (approvalRevision[id] || 0) + 1
             for (const [k, run] of Object.entries(runs.value)) if (k.startsWith(`${id}\n`) && ['sending', 'running'].includes(run.status)) { run.status = 'interrupted'; run.error = '连接已断开，重连后请检查历史；消息不会自动重发' }

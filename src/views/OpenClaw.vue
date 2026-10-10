@@ -2,13 +2,28 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import PageHeader from '../components/PageHeader.vue'
 import { useOpenClawStore, messageText } from '../stores/openclaw'
-import type { OpenClawInput, OpenClawInstance } from '../types/openclaw'
+import type { OpenClawInput, OpenClawInstance, OpenClawModels } from '../types/openclaw'
 import type { HostProfile } from '../types/deployment'
 const store = useOpenClawStore()
 const tab = ref('chat'), busy = ref(false), loadingHistory = ref(false), draft = ref(''), agentId = ref('main')
 const dialog = ref(false), hosts = ref<HostProfile[]>([]), output = ref(''), managementBusy = ref(false)
+const modelState = ref<OpenClawModels>(), modelSelection = ref(''), modelBusy = ref(false), modelError = ref('')
+let modelRevision = 0
+async function loadModels(apply = false) {
+  const id = store.selected, revision = ++modelRevision, selection = modelSelection.value
+  modelBusy.value = true; modelError.value = ''
+  try {
+    const result = await window.api.openclaw.models(id, apply ? selection : undefined)
+    if (revision !== modelRevision || id !== store.selected) return
+    modelState.value = result; modelSelection.value = result.current
+    if (apply) ElMessage.success('默认模型已切换')
+  } catch (error) { if (revision === modelRevision && id === store.selected) modelError.value = (error as Error).message }
+  finally { if (revision === modelRevision) modelBusy.value = false }
+}
+watch(() => [store.selected, tab.value], () => {
+  ++modelRevision; modelBusy.value = false; modelState.value = undefined; modelSelection.value = ''; modelError.value = ''
+})
 const transcript = ref<HTMLElement>()
 const form = reactive<OpenClawInput>({ id: '', name: '', transport: 'http', url: 'https://play.anpy.top/v1/chat/completions', model: 'openclaw', stream: true, management: 'none', managementPort: 18789, adminAccess: false, pairingAccess: false, hostId: '', cliPath: 'openclaw', authMode: 'token', token: '', clearToken: false })
 const current = computed(() => store.instances.find(row => row.id === store.selected))
@@ -16,6 +31,7 @@ const state = computed(() => store.states[store.selected])
 const isHttp = computed(() => current.value?.transport === 'http')
 const connected = computed(() => isHttp.value || state.value?.status === 'connected')
 const canManage = computed(() => current.value?.transport !== 'direct' && (!isHttp.value || ['local', 'ssh'].includes(current.value?.management || 'none')))
+const canManageModels = computed(() => isHttp.value ? canManage.value : state.value?.status === 'connected')
 const canReadLogs = computed(() => canManage.value || (!isHttp.value && connected.value))
 const session = computed(() => store.activeSession[store.selected] || '')
 const sessionTitle = computed(() => { const item = store.sessions[store.selected]?.find(row => row.key === session.value); return item?.displayName || item?.derivedTitle || item?.label || '新对话' })
@@ -112,29 +128,38 @@ function openLink(event: MouseEvent) {
 
 <template>
   <div class="claw-page">
-    <PageHeader title="OpenClaw" subtitle="连接本机与服务器，让对话和管理在一个地方完成">
-      <template #actions><el-button :loading="busy" @click="discover">连接本机</el-button><el-button type="primary" @click="edit()">添加实例</el-button></template>
-    </PageHeader>
     <div class="instance-bar">
+      <strong class="page-title">OpenClaw</strong>
       <el-select :model-value="store.selected" placeholder="选择 OpenClaw 实例" @change="store.select"><el-option v-for="row in store.instances" :key="row.id" :value="row.id" :label="row.name" /></el-select>
       <el-tag :type="connected ? 'success' : state?.status === 'error' ? 'danger' : 'info'">{{ statusLabel }}</el-tag>
-      <span v-if="current" class="muted">{{ current.transport === 'http' ? 'HTTP 接口 · ' + (current.model || 'openclaw') : current.transport === 'local' ? '本机' : current.transport === 'ssh' ? '服务器 · SSH 隧道' : '远程直连' }}<template v-if="state?.version"> · {{ state.version }}</template></span>
       <div class="bar-spacer" />
-      <el-button v-if="isHttp" :loading="busy" @click="testHttp">测试接口</el-button>
-      <el-button v-if="current && !isHttp && !connected" :loading="state?.status === 'connecting'" @click="connect">连接</el-button>
-      <el-button v-if="!isHttp && connected" @click="disconnect">断开</el-button>
-      <el-button v-if="current" text @click="edit(current)">编辑连接</el-button>
+      <el-popover placement="bottom-end" :width="360" trigger="click">
+        <template #reference><el-button class="instance-menu" aria-label="OpenClaw 菜单">菜单 ···</el-button></template>
+        <div class="connection-menu">
+          <strong>{{ current?.name || 'OpenClaw' }}</strong>
+          <p v-if="current" class="muted">{{ current.transport === 'http' ? 'HTTP · ' + current.model : current.transport === 'local' ? '本机' : current.transport === 'ssh' ? '服务器 · SSH' : '远程直连' }} {{ state?.version }}</p>
+          <div class="menu-actions">
+            <el-button v-if="current && isHttp" :loading="busy" @click="testHttp">测试接口</el-button>
+            <el-button v-if="current && !isHttp && !connected" :loading="state?.status === 'connecting'" @click="connect">连接</el-button>
+            <el-button v-if="current && !isHttp && connected" @click="disconnect">断开</el-button>
+            <el-button v-if="current" @click="edit(current)">编辑连接</el-button>
+            <el-button :loading="busy" @click="discover">连接本机</el-button>
+            <el-button @click="edit()">添加实例</el-button>
+          </div>
+          <p v-if="!isHttp && connected" class="muted permission-note">服务端授予的权限：{{ state?.scopes?.join('、') || '未返回权限信息' }}</p>
+          <p v-if="isHttp" class="muted">会话历史保存在本机。测试接口会发送一条简短消息。</p>
+        </div>
+      </el-popover>
     </div>
     <el-alert v-if="state?.error" class="connection-error" :title="state.error" type="error" :closable="false" show-icon>
       <template v-if="/pair|配对/i.test(state.error)">请在目标 OpenClaw 管理端核对并批准 Project Hub 设备后重新连接。设备 ID：{{ state.deviceId }}</template>
     </el-alert>
-    <el-alert v-if="!isHttp && connected" class="permission-note" :title="'服务端授予的权限：' + (state?.scopes?.join('、') || '未返回权限信息')" type="info" :closable="false" />
     <el-alert v-if="!isHttp && connected && ((current?.adminAccess && !state?.scopes?.includes('operator.admin')) || (current?.pairingAccess && !state?.scopes?.includes('operator.pairing') && !state?.scopes?.includes('operator.admin')))" title="申请的管理权限尚未获服务端授予，请在 OpenClaw 端核对设备审批，再重新连接。" type="warning" :closable="false" />
     <div v-if="!store.instances.length" class="welcome">
       <el-icon :size="48"><ChatDotRound /></el-icon><h2>连接你的 OpenClaw</h2><p>填写聊天接口地址、API Key 和模型名即可开始对话。</p>
       <div><el-button type="primary" @click="edit()">添加 HTTP 接口</el-button><el-button :loading="busy" @click="discover">连接本机 Gateway</el-button></div>
     </div>
-    <el-tabs v-else v-model="tab" class="claw-tabs">
+    <el-tabs v-else v-model="tab" class="claw-tabs" :class="{ 'chat-active': tab === 'chat' }">
       <el-tab-pane label="对话" name="chat">
         <div class="chat-layout">
           <aside class="sessions-panel">
@@ -145,7 +170,6 @@ function openLink(event: MouseEvent) {
           </aside>
           <section class="conversation">
             <div class="conversation-title"><strong>{{ current?.name }}</strong><span class="muted">{{ session ? '当前会话 · ' + sessionTitle : '选择会话或开始新对话' }}</span></div>
-            <p v-if="isHttp" class="http-note">会话历史保存在本机。测试接口会发送一条简短消息。</p>
             <div ref="transcript" v-loading="loadingHistory" class="transcript" @click="openLink">
               <div v-if="!messages.length && !run?.text" class="chat-empty"><el-icon :size="36"><ChatLineRound /></el-icon><h3>{{ connected ? '准备好开始对话了' : '先连接 OpenClaw' }}</h3><p>消息会发送给 {{ current?.name }}，执行能力由该实例的 Agent 配置决定。</p></div>
               <article v-for="(message, index) in messages" :key="message.localId || index" class="message" :class="message.role">
@@ -163,6 +187,15 @@ function openLink(event: MouseEvent) {
         </div>
       </el-tab-pane>
       <el-tab-pane label="管理" name="manage">
+        <div class="manage-panel model-panel" v-loading="modelBusy">
+          <h3>默认模型</h3><p class="muted">使用目标 OpenClaw 已配置的模型。切换后，未单独指定模型的会话将使用新默认模型；独立配置的 Agent 和会话保持自己的选择。</p>
+          <p>当前默认模型：<strong>{{ modelState?.current || '尚未读取' }}</strong></p>
+          <div class="manage-actions"><el-select v-model="modelSelection" filterable placeholder="选择服务器配置的模型" :disabled="!canManageModels || modelBusy" style="width: min(100%, 460px)"><el-option v-for="model in modelState?.models || []" :key="model.key" :value="model.key" :label="`${model.name} · ${model.key}${model.available ? '' : '（不可用）'}`" :disabled="!model.available" /></el-select><el-button :disabled="!canManageModels || modelBusy" @click="loadModels()">刷新模型</el-button><el-button type="primary" :disabled="!canManageModels || modelBusy || !modelSelection || modelSelection === modelState?.current" @click="loadModels(true)">切换模型</el-button></div>
+          <el-alert v-if="!canManageModels" :title="isHttp ? 'HTTP 模型管理需要绑定本机或 SSH 主机。' : '请先连接当前 Gateway，再读取和切换服务器模型。'" type="info" :closable="false" />
+          <el-alert v-if="modelError" :title="modelError" type="error" :closable="false" />
+          <p v-if="!isHttp" class="muted">直接使用 Gateway 读取和更新配置，需要服务端授予 operator.admin 权限。配置更新可能短暂重连。</p>
+          <p v-if="modelState && !modelState.models.length" class="muted">目标 OpenClaw 尚未返回已配置的模型。</p>
+        </div>
         <div class="manage-panel"><h3>{{ current?.name }} · 服务管理</h3><p class="muted">服务控制独立于聊天接口，本机通过 CLI，服务器通过 SSH。</p><div class="manage-actions"><el-button :disabled="managementBusy || !canManage" @click="service('status')">查看状态</el-button><el-button :disabled="managementBusy || !canManage" @click="service('start')">启动</el-button><el-button :disabled="managementBusy || !canManage" @click="service('restart')">重启</el-button><el-button type="danger" plain :disabled="managementBusy || !canManage" @click="service('stop')">停止</el-button><el-button :disabled="managementBusy || !canReadLogs" @click="service('logs')">读取日志</el-button></div><el-alert v-if="isHttp && !canManage" title="HTTP 聊天接口只提供对话，服务管理需在「编辑连接」中绑定本机或 SSH 主机。" type="info" :closable="false" /><p v-if="current?.transport === 'direct'" class="muted">服务控制需要 SSH；远程直连支持在线日志。</p><pre v-loading="managementBusy" class="service-output">{{ output || '选择一个操作，结果将在这里显示。' }}</pre></div>
       </el-tab-pane>
       <el-tab-pane label="连接设置" name="settings">
@@ -200,18 +233,21 @@ function openLink(event: MouseEvent) {
 </template>
 
 <style scoped>
+.page-title { font-size: 17px; margin-right: 8px; }.menu-actions { display: flex; flex-wrap: wrap; gap: 8px; }.menu-actions .el-button { margin: 0; }.connection-menu p { line-height: 1.6; overflow-wrap: anywhere; }
+.claw-tabs :deep(.el-tabs__header) { margin-bottom: 8px; flex-shrink: 0; }.claw-tabs :deep(.el-tabs__item) { height: 32px; }.chat-active :deep(.el-tabs__content) { overflow: hidden; }
 .permission-note { margin-bottom: 12px; }.http-note { padding: 8px 22px; margin: 0; color: var(--ph-muted); font-size: 12px; border-bottom: 1px solid var(--ph-line); }.http-model { align-self: flex-start; }
-.claw-page { padding: 28px 32px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; overflow: auto; }
-.instance-bar { display: flex; align-items: center; gap: 12px; padding: 16px 0; flex-wrap: wrap; }
+.claw-page { padding: 10px 16px 12px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
+.instance-bar { display: flex; align-items: center; gap: 12px; padding: 0 0 8px; flex-shrink: 0; }
 .instance-bar .el-select { width: 230px; }.bar-spacer { flex: 1; }.muted,.form-tip { color: var(--ph-muted); font-size: 12px; }.connection-error { margin-bottom: 12px; }
 .welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--ph-muted); }.welcome h2 { color: var(--el-text-color-primary); margin: 0; }
-.claw-tabs { flex: 1; min-height: 0; display: flex; flex-direction: column; }.claw-tabs :deep(.el-tabs__content) { flex: 1; overflow: auto; }.claw-tabs :deep(.el-tab-pane) { height: 100%; }
-.chat-layout { display: grid; grid-template-columns: 230px minmax(0,1fr); height: 100%; min-height: 480px; border: 1px solid var(--ph-line); border-radius: var(--ph-radius-md); background: var(--ph-panel); overflow: hidden; }
+.claw-tabs { flex: 1; min-height: 0; display: flex; flex-direction: column; }.claw-tabs :deep(.el-tabs__content) { flex: 1; min-height: 0; overflow: auto; }.claw-tabs :deep(.el-tab-pane) { height: 100%; }
+.chat-layout { display: grid; grid-template-columns: 230px minmax(0,1fr); height: 100%; min-height: 0; border: 1px solid var(--ph-line); border-radius: var(--ph-radius-md); background: var(--ph-panel); overflow: hidden; }
 .sessions-panel { border-right: 1px solid var(--ph-line); padding: 14px; overflow: auto; }.session-controls { display: flex; flex-direction: column; gap: 10px; }.session-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; font-size: 12px; color: var(--ph-muted); }
 .session-row { width: 100%; border: 0; background: transparent; color: var(--el-text-color-primary); text-align: left; padding: 12px 10px; margin-top: 4px; border-radius: var(--ph-radius-sm); cursor: pointer; }.session-row:hover,.session-row.active { background: var(--el-color-primary-light-9); }.session-row strong,.session-row span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.session-row strong { font-size: 13px; font-weight: 500; }.session-row span { color: var(--ph-muted); font-size: 10px; margin-top: 6px; }.empty-sessions { padding: 16px 4px; }
-.conversation { display: flex; flex-direction: column; min-height: 0; min-width: 0; }.conversation-title { display: flex; flex-direction: column; gap: 6px; padding: 16px 22px; border-bottom: 1px solid var(--ph-line); overflow-wrap: anywhere; }.transcript { flex: 1; min-height: 180px; overflow: auto; padding: 20px 24px; }.chat-empty { text-align: center; color: var(--ph-muted); padding: 50px 20px; }.chat-empty h3 { color: var(--el-text-color-primary); }.chat-empty p { font-size: 13px; line-height: 1.7; }
+.conversation { display: flex; flex-direction: column; min-height: 0; min-width: 0; }.conversation-title { display: flex; align-items: center; gap: 12px; padding: 10px 18px; flex-shrink: 0; border-bottom: 1px solid var(--ph-line); overflow-wrap: anywhere; }.transcript { flex: 1; min-height: 0; overflow: auto; padding: 20px 24px; }.chat-empty { text-align: center; color: var(--ph-muted); padding: 50px 20px; }.chat-empty h3 { color: var(--el-text-color-primary); }.chat-empty p { font-size: 13px; line-height: 1.7; }
 .message { margin: 0 0 20px; padding: 14px 18px; border-radius: var(--ph-radius-md); background: var(--ph-panel-2); }.message.user { background: var(--el-color-primary-light-9); }.message-label { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--ph-muted); margin-bottom: 8px; }.markdown { line-height: 1.75; font-size: 14px; overflow-wrap: anywhere; }.markdown :deep(p) { margin: 8px 0; }.markdown :deep(pre) { overflow: auto; padding: 14px; background: var(--ph-term-bg); color: var(--ph-term-fg); border-radius: var(--ph-radius-sm); }.markdown :deep(code) { font-family: var(--ph-font-mono); }.markdown :deep(a) { color: var(--el-color-primary); }.markdown :deep(table) { border-collapse: collapse; }.markdown :deep(td),.markdown :deep(th) { border: 1px solid var(--ph-line); padding: 6px; }
-.compose { border-top: 1px solid var(--ph-line); padding: 16px 20px; }.compose-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; padding-right: 100px; }.compose-actions .muted { margin-right: auto; }.approval { margin: 8px 20px; padding: 12px; background: var(--el-color-warning-light-9); border-radius: var(--ph-radius-sm); }.approval pre { white-space: pre-wrap; max-height: 150px; overflow: auto; }.activity { padding: 0 20px; max-height: 160px; overflow: auto; font-size: 12px; }
+.compose { border-top: 1px solid var(--ph-line); padding: 10px 16px; flex-shrink: 0; }.compose-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; padding-right: 100px; }.compose-actions .muted { margin-right: auto; }.approval { margin: 8px 20px; padding: 12px; background: var(--el-color-warning-light-9); border-radius: var(--ph-radius-sm); }.approval pre { white-space: pre-wrap; max-height: 150px; overflow: auto; }.activity { padding: 0 20px; max-height: 160px; overflow: auto; font-size: 12px; }
+.model-panel { margin-bottom: 18px; }
 .manage-panel,.settings-list { padding: 20px; border: 1px solid var(--ph-line); border-radius: var(--ph-radius-md); background: var(--ph-panel); }.manage-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 20px 0; }.manage-actions .el-button { margin-left: 0; }.service-output { min-height: 300px; max-height: 60vh; overflow: auto; background: var(--ph-term-bg); color: var(--ph-term-fg); padding: 18px; border-radius: var(--ph-radius-sm); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; }.settings-row { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--ph-line); }.settings-row > div { flex: 1; }.settings-row:last-child { border-bottom: 0; }.form-tip { margin: 6px 0 0; line-height: 1.6; }
-@media (max-width:1100px) { .claw-page { padding: 20px; }.chat-layout { grid-template-columns: 190px minmax(0,1fr); } }
+@media (max-width:1100px) { .claw-page { padding: 8px 12px; }.chat-layout { grid-template-columns: 190px minmax(0,1fr); } }
 </style>

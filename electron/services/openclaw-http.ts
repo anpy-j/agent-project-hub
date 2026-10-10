@@ -30,7 +30,7 @@ export async function completeHttpChat(options: {
     try { body = await response.json() } catch { /* Do not expose HTML error pages or proxy internals. */ }
     throw apiError(body, response.status)
   }
-  if (!(response.headers.get('content-type') || '').includes('text/event-stream')) {
+  if (!(response.headers.get('content-type') || '').toLowerCase().includes('text/event-stream')) {
     const body: any = await response.json()
     if (body.error) throw apiError(body)
     const text = contentText(body.choices?.[0]?.message?.content)
@@ -40,6 +40,9 @@ export async function completeHttpChat(options: {
   }
   if (!response.body) throw new Error('接口未返回响应内容')
   const reader = response.body.getReader(), decoder = new TextDecoder()
+  const cancel = () => { void reader.cancel(options.signal.reason).catch(() => {}) }
+  options.signal.addEventListener('abort', cancel, { once: true })
+  if (options.signal.aborted) cancel()
   let buffer = '', text = '', finished = false, done = false
   function event(block: string): void {
     const data = block.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n').trim()
@@ -57,6 +60,7 @@ export async function completeHttpChat(options: {
   try {
     while (!done) {
       const chunk = await reader.read()
+      if (options.signal.aborted) throw options.signal.reason || new Error('Request aborted')
       buffer += decoder.decode(chunk.value, { stream: !chunk.done })
       let boundary: RegExpExecArray | null
       while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
@@ -71,5 +75,5 @@ export async function completeHttpChat(options: {
     if (!finished) throw new Error('流式连接提前结束，回复可能不完整；不会自动重发消息')
     if (!text) throw new Error('接口未返回文本回复')
     return text
-  } finally { await reader.cancel().catch(() => {}); reader.releaseLock() }
+  } finally { options.signal.removeEventListener('abort', cancel); await reader.cancel().catch(() => {}); reader.releaseLock() }
 }
