@@ -79,6 +79,8 @@ test('successful commit followed by failed push still clears committed changes a
   assert.equal(page.commits.value[0].hash, 'new-commit')
   assert.equal(page.busy.value, '')
   assert.match(errors[0], /network unavailable/)
+  assert.match(errors[0], /已提交到本地，但推送失败/)
+  assert.equal(page.gitPushError.value, errors[0])
 })
 
 test('pull refreshes status and commit history before releasing its busy state', async () => {
@@ -222,4 +224,38 @@ test('failed branch checkout restores the actual branch and keeps edit drafts', 
   assert.equal(page.editForm.value.name, 'draft name')
   assert.equal(page.commitMessage.value, 'draft commit')
   assert.match(errors[0], /Local changes would be overwritten/)
+})
+
+test('non-fast-forward push explains how to recover without misreporting a successful commit', async () => {
+  const { page, errors } = createPage({
+    git: {
+      commit: async () => '已提交：fix',
+      push: async () => { throw new Error("Error invoking remote method 'git:push': Error: Command failed: git push\n! [rejected] master -> master (fetch first)") },
+      summary: async () => ({ ...detail([], 1).git, behind: 1 }), log: async () => [{ hash: 'local-commit' }]
+    }
+  })
+  page.commitMessage.value = 'fix'
+  await page.commitAndPush()
+  assert.match(errors[0], /已提交到本地，但推送失败/)
+  assert.match(errors[0], /先拉取并合并/)
+  assert.doesNotMatch(errors[0], /Error invoking|Command failed/)
+  assert.equal(page.commitMessage.value, '')
+  assert.equal(page.git.value.ahead, 1)
+  assert.equal(page.git.value.behind, 1)
+  assert.equal(page.busy.value, '')
+})
+
+test('commit failure keeps the message draft and does not claim that a push failed', async () => {
+  const { page, errors } = createPage({
+    git: {
+      commit: async () => { throw new Error('identity missing') },
+      push: () => { throw new Error('Push must not run') },
+      summary: async () => detail([{ path: 'file.txt', status: 'M' }]).git, log: async () => []
+    }
+  })
+  page.commitMessage.value = 'draft'
+  await page.commitAndPush()
+  assert.match(errors[0], /提交失败/)
+  assert.equal(page.gitPushError.value, '')
+  assert.equal(page.commitMessage.value, 'draft')
 })

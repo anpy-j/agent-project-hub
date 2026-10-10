@@ -281,6 +281,14 @@ async function loadCommits() {
 
 const gitRefreshing = ref(false)
 const gitWatchError = ref('')
+const gitPushError = ref('')
+function pushErrorMessage(error: unknown): string {
+  const message = (error as Error)?.message || String(error)
+  if (/\(fetch first\)|\(non-fast-forward\)|Updates were rejected because the remote contains work|tip of your current branch is behind/i.test(message)) {
+    return '远端有本地尚未同步的提交。请先拉取并合并远端更新，再点击推送；如有冲突，解决并提交后再推送。'
+  }
+  return message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+}
 let gitRefreshPending = false
 let gitRefreshPromise: Promise<void> | undefined
 let disposed = false
@@ -408,17 +416,27 @@ async function doCommit(alsoPush = false, selectedOnly = false) {
   if (selectedOnly && !selectedChanges.value.size) return
   const paths = selectedOnly ? [...selectedChanges.value] : undefined
   busy.value = alsoPush ? 'commit-push' : 'commit'
+  gitPushError.value = ''
+  let pushStarted = false
+  let committed = false
   try {
     const msg = await window.api.git.commit(projectId, message, paths)
+    committed = msg !== '没有可提交的变更'
     ElMessage.success(msg)
     commitMessage.value = ''
     selectedChanges.value = new Set()
     if (alsoPush) {
+      pushStarted = true
       const pushMsg = await window.api.git.push(projectId, git.value?.upstream === null)
       ElMessage.success(pushMsg)
     }
   } catch (e) {
-    ElMessage.error(`提交失败: ${(e as Error).message}`)
+    if (pushStarted) {
+      gitPushError.value = `${committed ? '已提交到本地，但推送失败' : '推送失败'}：${pushErrorMessage(e)}`
+      ElMessage.error(gitPushError.value)
+    } else {
+      ElMessage.error(`提交失败: ${(e as Error).message}`)
+    }
   } finally {
     // 提交可能已经成功，即使后续推送失败也必须重新读取工作区。
     await refreshGit()
@@ -430,6 +448,7 @@ async function doPull() {
   busy.value = 'pull'
   try {
     ElMessage.success(await window.api.git.pull(projectId))
+    gitPushError.value = ''
   } catch (e) {
     ElMessage.error(`拉取失败: ${(e as Error).message}`)
   } finally {
@@ -439,11 +458,14 @@ async function doPull() {
 }
 
 async function doPush() {
+  if (busy.value) return
   busy.value = 'push'
+  gitPushError.value = ''
   try {
     ElMessage.success(await window.api.git.push(projectId, git.value?.upstream === null))
   } catch (e) {
-    ElMessage.error(`推送失败: ${(e as Error).message}`)
+    gitPushError.value = `推送失败：${pushErrorMessage(e)}`
+    ElMessage.error(gitPushError.value)
   } finally {
     await refreshGit()
     busy.value = ''
@@ -1109,6 +1131,7 @@ onMounted(async () => {
               </el-tooltip>
             </div>
             <el-alert v-if="gitWatchError" :title="gitWatchError" type="warning" :closable="false" class="git-watch-alert" />
+            <el-alert v-if="gitPushError" :title="gitPushError" type="warning" show-icon class="git-watch-alert" @close="gitPushError = ''" />
             <el-tabs class="git-tabs">
               <el-tab-pane label="变更与提交">
                 <div class="git-panel git-files-panel">
