@@ -37,8 +37,12 @@ const branchDialogVisible = ref(false)
 
 const runCommands = ref<RunSuggestion[]>([])
 const customCmd = ref('')
-const runTask = ref<TaskHistory | null>(null)
-const runLogs = ref<string[]>([])
+const runTasks = ref<TaskHistory[]>([])
+const startingCommands = ref<string[]>([])
+const stoppingTaskIds = ref<string[]>([])
+const runLogBuffers = ref<Record<string, string[]>>({})
+const activeRunTasks = computed(() => runTasks.value.filter(t => t.status === 'running'))
+const runLogs = computed(() => runLogBuffers.value[runTaskId.value] || [])
 const runLogsText = computed(() => runLogs.value.join(''))
 const logBoxRef = ref<HTMLElement | null>(null)
 const runTaskId = ref('')
@@ -553,10 +557,14 @@ async function loadRunCommands() {
 async function loadRunState() {
   try {
     const list = await window.api.runner.listRunning()
-    runTask.value = list.find((t) => t.project_id === projectId) || null
-    if (runTask.value) runTaskId.value = runTask.value.id
+    runTasks.value = list.filter(t => t.project_id === projectId && t.type === 'run')
+    if (!runTaskId.value) runTaskId.value = runTasks.value[0]?.id || ''
+    await Promise.all(runTasks.value.map(async task => {
+      try { runLogBuffers.value[task.id] = [await window.api.task.readLog(task.id)] }
+      catch { runLogBuffers.value[task.id] ||= [] }
+    }))
   } catch {
-    runTask.value = null
+    runTasks.value = []
   }
   try {
     external.value = await window.api.runner.probeExternal(projectId)
@@ -565,11 +573,16 @@ async function loadRunState() {
   }
 }
 
+function runningCommand(command: string) {
+  return activeRunTasks.value.find(task => task.command === command)
+}
+
 async function runCommand(c: RunSuggestion) {
-  if (runTask.value?.status === 'running') {
-    ElMessage.warning('已有任务在运行，请先停止')
+  if (runningCommand(c.cmd) || startingCommands.value.includes(c.cmd)) {
+    ElMessage.warning('该命令已在运行或启动中')
     return
   }
+  startingCommands.value.push(c.cmd)
   try {
     const payload = JSON.parse(JSON.stringify({ bin: c.bin, args: c.args, display: c.cmd })) as {
       bin: string
@@ -578,8 +591,8 @@ async function runCommand(c: RunSuggestion) {
     }
     const taskId = await window.api.runner.startCustom(projectId, payload)
     runTaskId.value = taskId
-    runLogs.value = [`$ ${c.cmd}`, '']
-    runTask.value = {
+    runLogBuffers.value[taskId] ||= [`$ ${c.cmd}\n`]
+    if (!runTasks.value.some(task => task.id === taskId)) runTasks.value.push({
       id: taskId,
       project_id: projectId,
       type: 'run',
@@ -590,21 +603,27 @@ async function runCommand(c: RunSuggestion) {
       exit_code: null,
       started_at: new Date().toISOString(),
       ended_at: null
-    }
+    })
   } catch (e) {
     ElMessage.error(`启动失败: ${(e as Error).message}`)
+  } finally {
+    startingCommands.value = startingCommands.value.filter(command => command !== c.cmd)
   }
 }
 
-async function stopRun() {
-  if (!runTask.value) return
-  await window.api.runner.stop(runTask.value.id)
+async function stopRun(task: TaskHistory) {
+  if (stoppingTaskIds.value.includes(task.id)) return
+  stoppingTaskIds.value.push(task.id)
+  try { await window.api.runner.stop(task.id) }
+  catch (e) { ElMessage.error(`停止失败: ${(e as Error).message}`) }
+  finally { stoppingTaskIds.value = stoppingTaskIds.value.filter(id => id !== task.id) }
 }
 
 function appendRunLog(chunk: LogChunk) {
-  if (chunk.taskId !== runTaskId.value) return
-  runLogs.value.push(chunk.data)
-  if (runLogs.value.length > 300) runLogs.value.splice(0, 100)
+  if (!runTasks.value.some(task => task.id === chunk.taskId)) return
+  const logs = runLogBuffers.value[chunk.taskId] ||= []
+  logs.push(chunk.data)
+  if (logs.length > 300) logs.splice(0, 100)
   nextTick(() => {
     if (logBoxRef.value) logBoxRef.value.scrollTop = logBoxRef.value.scrollHeight
   })
@@ -612,9 +631,13 @@ function appendRunLog(chunk: LogChunk) {
 
 function onRunStatus(task: TaskHistory) {
   if (task.project_id !== projectId) return
-  if (task.id === runTaskId.value || runTask.value?.id === task.id) {
-    runTask.value = task.status === 'running' ? task : null
-    ElMessage.info(`任务结束：${task.status}`)
+  if (task.type === 'run') {
+    const index = runTasks.value.findIndex(t => t.id === task.id)
+    if (index >= 0) runTasks.value[index] = task
+    else runTasks.value.push(task)
+    runLogBuffers.value[task.id] ||= [`$ ${task.command}\n`]
+    if (!runTaskId.value) runTaskId.value = task.id
+    if (task.status !== 'running') ElMessage.info(`任务结束：${task.command} · ${task.status}`)
   }
   history.value = [task, ...history.value.filter((t) => t.id !== task.id)].slice(0, 20)
 }
@@ -923,6 +946,9 @@ const statusType: Record<string, string> = {
   failed: 'is-danger',
   stopped: ''
 }
+const taskStatusText: Record<string, string> = {
+  running: '运行中', success: '已完成', failed: '失败', stopped: '已停止'
+}
 
 onMounted(async () => {
   startGitWatching()
@@ -980,7 +1006,7 @@ onMounted(async () => {
           <span class="type-chip">{{ typeLabel[project.type] || project.type }}</span>
           <span v-if="project.framework" class="type-chip">{{ project.framework }}</span>
           <span v-for="tag in (project.tags || []).slice(0, 3)" :key="tag" class="pill">{{ tag }}</span>
-          <span v-if="runTask?.status === 'running'" class="chip is-running"><span class="dot" />运行中</span>
+          <span v-if="activeRunTasks.length" class="chip is-running"><span class="dot" />运行中 · {{ activeRunTasks.length }}</span>
           <span v-else-if="external.running" class="chip is-info"><span class="dot" />外部进程</span>
           <span class="head-spacer" />
           <el-button size="small" type="primary" plain @click="router.push({ path: '/delivery', query: { project: projectId } })"><el-icon><UploadFilled /></el-icon>镜像发布</el-button>
@@ -1287,9 +1313,8 @@ onMounted(async () => {
             <template #header>
               <div class="head-row">
                 <b>运行方式</b>
-                <span v-if="runTask?.status === 'running'" class="run-state">
-                  <span class="dot" />运行中
-                  <el-button size="small" type="danger" plain @click="stopRun">停止</el-button>
+                <span v-if="activeRunTasks.length" class="run-state">
+                  <span class="dot" />{{ activeRunTasks.length }} 个任务运行中
                 </span>
               </div>
             </template>
@@ -1298,7 +1323,8 @@ onMounted(async () => {
                 <span class="cmd-text mono">{{ c.cmd }}</span>
                 <span v-if="c.custom" class="type-chip">自定义</span>
                 <el-button size="small" text type="danger" @click="removeRunCommand(c.cmd)">删除</el-button>
-                <el-button size="small" type="primary" :disabled="runTask?.status === 'running'" @click="runCommand(c)">
+                <el-button v-if="runningCommand(c.cmd)" size="small" type="danger" plain :loading="stoppingTaskIds.includes(runningCommand(c.cmd)!.id)" @click="stopRun(runningCommand(c.cmd)!)">停止</el-button>
+                <el-button v-else size="small" type="primary" :loading="startingCommands.includes(c.cmd)" @click="runCommand(c)">
                   <el-icon><VideoPlay /></el-icon>运行
                 </el-button>
               </div>
@@ -1314,6 +1340,14 @@ onMounted(async () => {
                 <div class="tip-line">进程异常退出时自动重启，最多连续 5 次，对之后启动的任务生效</div>
               </div>
               <el-switch :model-value="autoRestart" @change="toggleAutoRestart" />
+            </div>
+            <div v-if="runTasks.length" class="run-task-list">
+              <div v-for="task in runTasks" :key="task.id" class="cmd-row">
+                <el-button size="small" text :type="runTaskId === task.id ? 'primary' : 'default'" @click="runTaskId = task.id">查看日志</el-button>
+                <span class="cmd-text mono">{{ task.command }}</span>
+                <span class="type-chip">{{ task.status === 'running' ? '运行中' : taskStatusText[task.status] || task.status }}</span>
+                <el-button v-if="task.status === 'running'" size="small" type="danger" plain :loading="stoppingTaskIds.includes(task.id)" @click="stopRun(task)">停止</el-button>
+              </div>
             </div>
             <div v-if="runLogs.length" ref="logBoxRef" class="terminal log-box compact">
               <pre>{{ runLogsText }}</pre>

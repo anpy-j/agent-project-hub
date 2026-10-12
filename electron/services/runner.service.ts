@@ -144,8 +144,12 @@ class RunnerService {
     sender: Sender,
     metadata: Pick<TaskHistory, 'build_target_id' | 'build_snapshot' | 'source_revision'> = {}
   ): Promise<string> {
-    if (type === 'run' && [...this.running.values()].some(e => e.task.project_id === projectId && e.task.type === 'run')) {
-      throw new Error('该项目仍在运行或停止中，请等待退出后再启动')
+    if (type === 'run' && [...this.running.values()].some(e =>
+      e.task.project_id === projectId && e.task.type === 'run' &&
+      e.cmd.cwd === cmd.cwd && e.cmd.bin === cmd.bin &&
+      JSON.stringify(e.cmd.args) === JSON.stringify(cmd.args)
+    )) {
+      throw new Error('该命令仍在运行或停止中，请等待退出后再启动')
     }
     const taskId = randomUUID()
     const logPath = this.ensureLogPath(taskId)
