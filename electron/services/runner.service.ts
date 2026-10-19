@@ -114,6 +114,21 @@ class RunnerService {
     } finally { this.checkingBuilds.delete(projectId) }
   }
 
+  async buildAndWait(projectId: string, targetId: string, log: (text: string) => void): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const sender: Sender = (channel, payload) => {
+        if (channel === 'runner:log') log((payload as LogChunk).data)
+        if (channel === 'runner:status') {
+          const task = payload as TaskHistory
+          if (task.status === 'success') resolve()
+          else if (task.status !== 'running') reject(new Error(`项目构建${task.status === 'stopped' ? '已停止' : '失败'}（退出码 ${task.exit_code ?? '-'}）`))
+        }
+        for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(channel, payload)
+      }
+      void this.startBuild(projectId, sender, targetId).catch(reject)
+    })
+  }
+
   /** 实时探测构建产物目录（不落库，避免产物变化后数据过期） */
   artifacts(projectId: string, targetId?: string): ProjectArtifact[] {
     const project = projectRepo.get(projectId)

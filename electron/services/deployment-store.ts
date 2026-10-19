@@ -3,9 +3,10 @@ import { randomUUID } from 'crypto'
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import type { DeployConfig, HostInput, HostProfile, RegistryInput, RegistryProfile, ReleaseJob } from '../../src/types/deployment'
+import { repositoryName } from './registry-client'
 import { validateHost, validateRegistry } from './deployment-validation'
 
-type StoredRegistry = RegistryProfile & { credential: string }
+type StoredRegistry = RegistryProfile & { credential: string; managementCredential?: string }
 type StoredHost = HostProfile & { credential: string }
 interface State { registries: StoredRegistry[]; hosts: StoredHost[]; configs: DeployConfig[]; jobs: ReleaseJob[] }
 let state: State | undefined
@@ -29,7 +30,7 @@ function encrypt(value: object): string {
   return safeStorage.encryptString(JSON.stringify(value)).toString('base64')
 }
 function decrypt<T>(value: string): T { return JSON.parse(safeStorage.decryptString(Buffer.from(value, 'base64'))) }
-function publicRegistry({ credential: _secret, ...profile }: StoredRegistry): RegistryProfile { return profile }
+function publicRegistry({ credential: _secret, managementCredential: _managementSecret, ...profile }: StoredRegistry): RegistryProfile { return profile }
 function publicHost({ credential: _secret, ...profile }: StoredHost): HostProfile { return profile }
 export const deploymentStore = {
   registries: () => load().registries.map(publicRegistry),
@@ -40,8 +41,21 @@ export const deploymentStore = {
     const unchanged = existing?.server === input.server && existing?.username === input.username
     const credential = input.password ? encrypt({ password: input.password }) : unchanged ? existing!.credential : ''
     if (!credential) throw new Error('请填写仓库密码；更换地址或账号需重新输入')
-    const row: StoredRegistry = { id: existing?.id || randomUUID(), name: input.name.trim(), server: input.server, username: input.username, hasPassword: true, credential }
+    const management = input.aliyun === undefined ? (unchanged ? existing?.aliyun : undefined) : input.aliyun || undefined
+    const managementCredential = input.aliyun?.accessKeyId && input.aliyun.accessKeySecret
+      ? encrypt({ accessKeyId: input.aliyun.accessKeyId, accessKeySecret: input.aliyun.accessKeySecret })
+      : management && existing?.server === input.server && management.regionId === existing?.aliyun?.regionId ? existing.managementCredential : undefined
+    if (management && !managementCredential) throw new Error('请填写阿里云管理 API 的 AccessKey ID 和 Secret')
+    const row: StoredRegistry = { id: existing?.id || randomUUID(), name: input.name.trim(), server: input.server, username: input.username, hasPassword: true, credential, managementCredential, aliyun: management ? { regionId: management.regionId, hasAccessKey: true } : undefined, repositories: [...new Set(input.repositories ?? (unchanged ? existing?.repositories || [] : []))].sort() }
     s.registries = [...s.registries.filter(r => r.id !== row.id), row]; persist(); return publicRegistry(row)
+  },
+  rememberRepository(id: string, name: string, server: string): void {
+    repositoryName(name)
+    const registry = load().registries.find(profile => profile.id === id && profile.server === server)
+    if (!registry || registry.repositories?.includes(name)) return
+    if ((registry.repositories?.length || 0) >= 500) throw new Error('镜像路径最多保存 500 个，请在全局设置中整理')
+    registry.repositories = [...(registry.repositories || []), name].sort()
+    persist()
   },
   saveHost(input: HostInput): HostProfile {
     validateHost(input)
@@ -54,6 +68,11 @@ export const deploymentStore = {
   },
   registry(id: string): StoredRegistry { const r = load().registries.find(r => r.id === id); if (!r) throw new Error('镜像仓库不存在'); return r },
   host(id: string): StoredHost { const h = load().hosts.find(h => h.id === id); if (!h) throw new Error('服务器不存在'); return h },
+  registryManagementSecret(id: string): { accessKeyId: string; accessKeySecret: string } {
+    const credential = this.registry(id).managementCredential
+    if (!credential) throw new Error('请在全局连接中配置阿里云管理 API 凭据')
+    return decrypt(credential)
+  },
   registrySecret(id: string): { password: string } { return decrypt(this.registry(id).credential) },
   hostSecret(id: string): { password?: string; privateKey?: string; passphrase?: string } {
     const h = this.host(id); if (!h.credential) throw new Error('请先填写服务器登录凭据'); return decrypt(h.credential)
@@ -66,6 +85,7 @@ export const deploymentStore = {
     if (load().configs.some(c => c.hostId === id)) throw new Error('服务器仍被项目发布配置引用，请先更换配置')
     load().hosts = load().hosts.filter(h => h.id !== id); persist()
   },
+  configs: () => load().configs,
   config: (id: string) => load().configs.find(c => c.projectId === id) || null,
   saveConfig(config: DeployConfig): DeployConfig { load().configs = [...load().configs.filter(c => c.projectId !== config.projectId), config]; persist(); return config },
   jobs: () => load().jobs,

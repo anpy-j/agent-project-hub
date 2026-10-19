@@ -6,11 +6,11 @@ const root = path.resolve(__dirname, '..')
 const temporary = fs.mkdtempSync(path.join(root, 'delivery-smoke-'))
 try {
   esbuild.buildSync({ entryPoints: [path.join(root, 'electron/services/deployment-store.ts')], outfile: path.join(temporary, 'store.cjs'), bundle: true, platform: 'node', format: 'cjs', external: ['electron'] })
-  fs.writeFileSync(path.join(temporary, 'legacy-preload.cjs'), `const {contextBridge,ipcRenderer}=require('electron'); contextBridge.exposeInMainWorld('api',{workspace:{list:()=>ipcRenderer.invoke('workspace:list')},project:{list:()=>ipcRenderer.invoke('project:list')}});`)
+  fs.writeFileSync(path.join(temporary, 'legacy-preload.cjs'), `const {contextBridge,ipcRenderer}=require('electron'); contextBridge.exposeInMainWorld('api',{agent:{onTask:()=>()=>{}},workspace:{list:()=>ipcRenderer.invoke('workspace:list')},project:{list:()=>ipcRenderer.invoke('project:list')}});`)
   const electron = process.env.PROJECT_HUB_TEST_ELECTRON || require('electron')
   const env = { ...process.env, PROJECT_HUB_SMOKE_DIR: temporary }
   delete env.ELECTRON_RUN_AS_NODE
-  for (const mode of ['current', 'legacy', 'legacy-main']) {
+  for (const mode of (process.env.PROJECT_HUB_SMOKE_MODES ? process.env.PROJECT_HUB_SMOKE_MODES.split(',') : ['management', 'current', 'legacy', 'legacy-main'])) {
     const result = spawnSync(electron, [path.join(__dirname, 'electron-delivery-smoke.cjs')], { env: { ...env, PROJECT_HUB_SMOKE_MODE: mode }, encoding: 'utf8', timeout: 30000, windowsHide: true })
     process.stdout.write(result.stdout || '')
     process.stderr.write(result.stderr || '')

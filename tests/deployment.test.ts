@@ -185,3 +185,68 @@ esac
     }
   })
 }
+
+test('date versions, project names and namespaces are deterministic', async () => {
+  const { releaseDate, imageProjectName, repositoryNamespaces } = await import('../src/utils/delivery')
+  assert.equal(releaseDate(new Date(2026, 9, 15, 23, 59)), '20261015')
+  assert.equal(imageProjectName('QianChuan'), 'qianchuan')
+  assert.equal(imageProjectName('My Project!'), 'my-project')
+  assert.deepEqual(repositoryNamespaces(['anpengyu/qianchuan', 'anpengyu/worker', 'library', 'org/team/app']), ['anpengyu', 'org/team'])
+})
+
+test('port mapping validation rejects invalid values and overlapping bindings', async () => {
+  const { portOverride } = await import('../electron/services/deployment-script')
+  const mapping = { hostPort: 8089, containerPort: 8080, hostIp: '0.0.0.0' as const, protocol: 'tcp' as const }
+  assert.match(portOverride({ ...config, portMappings: [mapping] }), /ports: !override \["0.0.0.0:8089:8080\/tcp"\]/)
+  assert.match(portOverride({ ...config, portMappings: [] }), /!override \[\]/)
+  assert.equal(portOverride(config), '')
+  for (const value of [0, -1, 65536, 8080.5, NaN]) {
+    assert.throws(() => validateConfig({ ...config, portMappings: [{ ...mapping, hostPort: value }] }), /整数/)
+    assert.throws(() => validateConfig({ ...config, portMappings: [{ ...mapping, containerPort: value }] }), /整数/)
+  }
+  assert.throws(() => validateConfig({ ...config, portMappings: [mapping, { ...mapping, hostIp: '127.0.0.1' }] }), /冲突/)
+  assert.doesNotThrow(() => validateConfig({ ...config, portMappings: [mapping, { ...mapping, protocol: 'udp' }] }))
+})
+
+for (const scenario of ['success', 'health-failure', 'config-failure', 'use-compose']) {
+  test(`port deployment transaction: ${scenario}`, { skip: process.platform === 'win32' }, () => {
+    const dir = mkdtempSync(join(process.cwd(), 'delivery-ports-test-'))
+    try {
+      mkdirSync(join(dir, 'bin'))
+      writeFileSync(join(dir, 'compose.yaml'), 'services: {}\n')
+      const previous = join(dir, '.project-hub-myapp-ports.yaml')
+      const oldPorts = 'services:\n  app:\n    ports: !override ["127.0.0.1:8090:80/tcp"]\n'
+      writeFileSync(previous, oldPorts)
+      writeFileSync(join(dir, 'bin', 'flock'), '#!/bin/bash\nexit 0\n', { mode: 0o755 })
+      writeFileSync(join(dir, 'bin', 'docker'), `#!/usr/bin/env node
+const fs = require('fs'), path = require('path'), args = process.argv.slice(2), image = process.env.APP_IMAGE
+let output = '', status = 0
+if(args[0] === 'login') fs.readFileSync(0)
+else if(args[0] === 'compose' && args[1] !== 'version') {
+  const files = args.flatMap((a,i) => a === '-f' ? [args[i+1]] : [])
+  const ports = files.length > 1 ? fs.readFileSync(files[1], 'utf8') : 'base-compose'
+  const command = args.slice(args.lastIndexOf('-f') + 2).join(' ')
+  fs.appendFileSync(path.join(process.env.TEST_DIR, 'trace'), JSON.stringify({command, image, ports})+'\\n')
+  if(command === 'config --quiet' && process.env.SCENARIO === 'config-failure') status = 1
+  if(command === 'config --images app') output = image
+  if(command === 'ps -a -q app') output = 'old-container'
+  if(command.startsWith('up ') && image !== 'sha256:old' && process.env.SCENARIO === 'health-failure') status = 1
+  if(command === 'ps -q app') output = image === 'sha256:old' ? 'restored-container' : 'new-container'
+} else if(args[0] === 'inspect') output = args.at(-1) === 'old-container' || args.at(-1) === 'restored-container' ? 'sha256:old' : args[2].includes('.State.Health') ? 'healthy' : 'sha256:new'
+else if(args[0] === 'image') output = 'sha256:new'
+process.stdout.write(output+'\\n'); process.exit(status)
+`, { mode: 0o755 })
+      const script = deployScript({ ...config, remoteDir: dir, ...(scenario === 'use-compose' ? {} : { portMappings: [{ hostPort: 8089, containerPort: 8080, hostIp: '0.0.0.0' as const, protocol: 'tcp' as const }] }) }, 'registry.example.com', 'user', 'registry.example.com/personal/myapp:v1')
+      const result = spawnSync(bash, ['-c', script], { input: 'secret\n', encoding: 'utf8', env: { ...process.env, PATH: join(dir, 'bin') + ':' + process.env.PATH, TEST_DIR: dir, SCENARIO: scenario }, timeout: 20000 })
+      assert.equal(result.status, ['success', 'use-compose'].includes(scenario) ? 0 : 1, result.stdout + result.stderr)
+      const trace = readFileSync(join(dir, 'trace'), 'utf8').trim().split('\n').map(line => JSON.parse(line))
+      if (scenario === 'success') assert.match(readFileSync(previous, 'utf8'), /8089:8080/)
+      if (scenario === 'use-compose') { assert.equal(existsSync(previous), false); assert.ok(trace.every(row => row.ports === 'base-compose')) }
+      if (scenario === 'config-failure') { assert.ok(!trace.some(row => row.command.startsWith('up '))); assert.equal(readFileSync(previous, 'utf8'), oldPorts) }
+      if (scenario === 'health-failure') {
+        assert.equal(readFileSync(previous, 'utf8'), oldPorts)
+        assert.ok(trace.some(row => row.command.startsWith('up ') && row.image === 'sha256:old' && row.ports === oldPorts))
+      }
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+}

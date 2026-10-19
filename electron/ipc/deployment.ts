@@ -4,7 +4,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import type { HostInput, RegistryInput, DeployConfig, RemoteAction, ReleaseAction } from '../../src/types/deployment'
 import { deploymentStore as store } from '../services/deployment-store'
 import { discoverFingerprint } from '../services/deployment-ssh'
-import { hasActiveReleases, hostBusy, remoteAction, remoteSnapshot, saveDeployConfig, startRelease, testHost, testRegistry } from '../services/deployment.service'
+import { registryCatalog, registryTags, hasActiveReleases, hostBusy, remoteAction, remoteSnapshot, saveDeployConfig, startRelease, testHost, testRegistry } from '../services/deployment.service'
 
 function guard(event: IpcMainInvokeEvent): void {
   if (!BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) throw new Error('不允许的调用来源')
@@ -15,6 +15,8 @@ export function registerDeploymentIpc(): void {
   handle('saveRegistry', (input: RegistryInput) => { if (hasActiveReleases()) throw new Error('发布过程中不能修改仓库凭据'); return store.saveRegistry(input) })
   handle('removeRegistry', (id: string) => { if (hasActiveReleases()) throw new Error('请等待发布完成'); store.removeRegistry(id) })
   handle('testRegistry', testRegistry)
+  handle('registryCatalog', registryCatalog)
+  handle('registryTags', registryTags)
   handle('hosts', () => store.hosts())
   handle('saveHost', (input: HostInput) => { if (hostBusy(input.id)) throw new Error('服务器正在执行操作'); return store.saveHost(input) })
   handle('removeHost', (id: string) => { if (hostBusy(id)) throw new Error('服务器正在执行操作'); store.removeHost(id) })

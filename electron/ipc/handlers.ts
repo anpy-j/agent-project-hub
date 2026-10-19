@@ -1,3 +1,4 @@
+import { discoverProjectModules } from '../services/project-modules'
 import { flutterEnvironment } from '../services/flutter-environment'
 import { projectChild } from '../services/build-targets'
 import { listBuildTargets, saveBuildTargets } from '../services/build-targets'
@@ -167,6 +168,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('project:clone', (_e, data: { url: string; parent: string; directory: string }) =>
     cloneProject(data.url, data.parent, data.directory)
   )
+  ipcMain.handle('project:modules', (_e, id: string) => {
+    const project = projectRepo.get(id)
+    if (!project) throw new Error('项目不存在')
+    return discoverProjectModules(project.path)
+  })
   ipcMain.handle('project:buildTargets', (_e, id: string) => {
     const project = projectRepo.get(id)
     if (!project) throw new Error('项目不存在')

@@ -1,8 +1,16 @@
 import type { DeployConfig } from '../../src/types/deployment'
 import { quote, validateConfig, registryServer } from './deployment-validation'
 
+export function portOverride(config: DeployConfig): string {
+  validateConfig(config)
+  if (config.portMappings === undefined) return ''
+  const ports = config.portMappings.map(p => `${p.hostIp}:${p.hostPort}:${p.containerPort}/${p.protocol}`)
+  return `services:\n  ${config.service}:\n    ports: !override ${JSON.stringify(ports)}\n`
+}
+
 export function deployScript(config: DeployConfig, server: string, username: string, image: string): string {
   validateConfig(config); registryServer(server)
+  const override = portOverride(config)
   return `set -Eeuo pipefail
 cd ${quote(config.remoteDir)}
 command -v flock >/dev/null
@@ -17,8 +25,20 @@ trap 'rm -rf -- "$docker_config"' EXIT
 export DOCKER_CONFIG="$docker_config"
 docker login ${quote(server)} --username ${quote(username)} --password-stdin
 export APP_IMAGE=${quote(image)}
-compose() { docker compose -p ${quote(config.composeProject)} -f ${quote(config.composeFile)} "$@"; }
-compose config --quiet
+previous_override=${quote('.project-hub-' + config.composeProject + '-ports.yaml')}
+override_file=''
+${override ? `override_file="$docker_config/ports.yaml"
+printf '%s' ${quote(override)} > "$override_file"` : ''}
+compose() {
+  if [ -n "$override_file" ]; then
+    docker compose -p ${quote(config.composeProject)} -f ${quote(config.composeFile)} -f "$override_file" "$@"
+  else
+    docker compose -p ${quote(config.composeProject)} -f ${quote(config.composeFile)} "$@"
+  fi
+}
+if ! compose config --quiet; then
+  echo 'Compose 配置校验失败；自定义端口映射需要 Docker Compose 2.24.4 或更新版本'; exit 1
+fi
 if ! compose config --images ${quote(config.service)} | grep -Fx -- "$APP_IMAGE" >/dev/null; then
   echo 'Compose app image must use APP_IMAGE'; exit 1
 fi
@@ -33,6 +53,8 @@ rollback() {
   echo 'Deployment failed'
   if [ -n "$old_image" ]; then
     export APP_IMAGE="$old_image"
+    override_file=''
+    if [ -f "$previous_override" ]; then override_file="$previous_override"; fi
     if compose up -d --no-deps --no-build --pull never --wait --wait-timeout 120 ${quote(config.service)}; then
       restored_id=$(compose ps -q ${quote(config.service)})
       restored_image=$(docker inspect --format '{{.Image}}' "$restored_id")
@@ -51,6 +73,8 @@ health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{
 if [ "$health" != 'healthy' ]; then echo 'A working healthcheck is required'; rollback; fi
 printf '%s\\n' ${quote(image)} > .project-hub-${config.composeProject}-current.tmp
 mv .project-hub-${config.composeProject}-current.tmp .project-hub-${config.composeProject}-current
+${override ? `cp -- "$override_file" "$previous_override.tmp"
+mv -- "$previous_override.tmp" "$previous_override"` : 'rm -f -- "$previous_override"'}
 echo 'Deployment healthy'
 `
 }

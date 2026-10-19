@@ -3,8 +3,11 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit as EditIcon, RefreshRight, Search, VideoPlay, VideoPause, Share, CircleCheck, Upload, Download } from '@element-plus/icons-vue'
-import type { BuildTarget, GitBranch, GitCommit, GitSummary, LogChunk, Project, ProjectArtifact, RunSuggestion, TaskHistory, TaskItem } from '../types'
+import type { BuildTarget, GitBranch, GitCommit, GitSummary, LogChunk, Project, ProjectArtifact, ProjectModule, RunSuggestion, TaskHistory, TaskItem } from '../types'
 
+import ProjectDelivery from '../components/ProjectDelivery.vue'
+
+const deliverySection = ref<HTMLElement | null>(null)
 const route = useRoute()
 const router = useRouter()
 const projectId = String(route.params.id || '')
@@ -51,6 +54,11 @@ const external = ref<{ running: boolean; processes: Array<{ pid: number; command
   processes: []
 })
 
+const modules = ref<ProjectModule[]>([]), selectedModuleDirectory = ref('')
+function configureModule(directory: string) {
+  const module = modules.value.find(item => item.directory === directory)
+  if (module) editBuildTarget(module.target)
+}
 const buildTargets = ref<BuildTarget[]>([])
 const selectedBuildTargetId = ref('')
 const selectedBuildTarget = computed(() => buildTargets.value.find(t => t.id === selectedBuildTargetId.value))
@@ -648,7 +656,9 @@ function askAgentBuild() {
 /* ---------- 打包 / 构建 ---------- */
 async function loadBuildInfo() {
   try {
-    buildTargets.value = await window.api.project.buildTargets(projectId)
+    const [targets, children] = await Promise.all([window.api.project.buildTargets(projectId), window.api.project.modules(projectId)])
+    buildTargets.value = targets
+    modules.value = children
     if (!buildTargets.value.some(t => t.id === selectedBuildTargetId.value)) selectedBuildTargetId.value = buildTargets.value[0]?.id || ''
     await loadTargetArtifacts()
   } catch (e) { ElMessage.error(`加载构建配置失败：${(e as Error).message}`) }
@@ -1009,7 +1019,7 @@ onMounted(async () => {
           <span v-if="activeRunTasks.length" class="chip is-running"><span class="dot" />运行中 · {{ activeRunTasks.length }}</span>
           <span v-else-if="external.running" class="chip is-info"><span class="dot" />外部进程</span>
           <span class="head-spacer" />
-          <el-button size="small" type="primary" plain @click="router.push({ path: '/delivery', query: { project: projectId } })"><el-icon><UploadFilled /></el-icon>镜像发布</el-button>
+          <el-button size="small" type="primary" plain @click="deliverySection?.scrollIntoView({ behavior: 'smooth', block: 'start' })"><el-icon><UploadFilled /></el-icon>镜像发布</el-button>
           <el-button size="small" plain @click="router.push({ path: '/ai/library', query: { projectId } })"><el-icon><Reading /></el-icon>项目资料</el-button>
           <el-button size="small" plain @click="router.push({ path: '/ai/skills', query: { projectId } })"><el-icon><MagicStick /></el-icon>Skills 管理</el-button>
           <el-button size="small" @click="openFolder()"><el-icon><FolderOpened /></el-icon>目录</el-button>
@@ -1356,6 +1366,7 @@ onMounted(async () => {
 
           <el-card class="block">
             <template #header><b>打包与产物</b></template>
+            <div class="build-row" style="margin-bottom: 10px"><el-select v-model="selectedModuleDirectory" filterable placeholder="选择子项目创建构建目标" :disabled="buildTask?.status === 'running'" @change="configureModule"><el-option v-for="module in modules" :key="module.directory" :value="module.directory" :label="`${module.directory} · ${module.type}`" /></el-select><el-button size="small" @click="loadBuildInfo">扫描子项目</el-button></div>
             <div class="build-row" style="margin-bottom: 10px">
               <el-select v-model="selectedBuildTargetId" placeholder="选择构建目标" :disabled="buildTask?.status === 'running'" @change="flutterCheck = null; loadTargetArtifacts()">
                 <el-option v-for="t in buildTargets" :key="t.id" :value="t.id" :label="`${t.name} · ${t.directory}`" />
@@ -1453,6 +1464,10 @@ onMounted(async () => {
           </el-card>
         </div>
       </div>
+      <section ref="deliverySection" class="block" style="margin-top: 20px">
+        <h3>构建与发布</h3>
+        <ProjectDelivery :project-id="projectId" :targets="buildTargets" embedded @targets-changed="loadBuildInfo" />
+      </section>
     </template>
     <!-- 任务编辑弹窗 -->
     <el-dialog v-model="editTaskVisible" title="编辑任务" width="420">

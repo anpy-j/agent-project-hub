@@ -6,12 +6,14 @@ import type { Runtime, AiConfig, AiProviderOption, AiProvider, LogUsage, Mainten
 import PageHeader from '../components/PageHeader.vue'
 import AgentAiSettings from '../components/AgentAiSettings.vue'
 import GitAuthSettings from '../components/GitAuthSettings.vue'
+import DeploymentConnections from '../components/DeploymentConnections.vue'
 import RagflowSettings from '../components/RagflowSettings.vue'
 
 const route = useRoute()
 const activeSection = ref('git')
 const sections = [
   { id: 'git', title: '仓库认证', description: 'SSH 密钥与连接测试', icon: 'Key' },
+  { id: 'delivery', title: '仓库与服务器', description: '全局镜像仓库与 SSH 连接', icon: 'Connection' },
   { id: 'ai', title: 'AI 服务', description: '模型与服务连接', icon: 'MagicStick' },
   { id: 'knowledge', title: '知识库', description: 'RAGFlow 连接与文档', icon: 'Collection' },
   { id: 'runtime', title: '运行环境', description: '本机开发工具与版本', icon: 'Cpu' },
@@ -214,6 +216,7 @@ onMounted(() => {
     </nav>
 
     <div class="settings-stack">
+      <DeploymentConnections v-if="activeSection === 'delivery'" />
       <RagflowSettings v-if="activeSection === 'knowledge'" />
       <GitAuthSettings v-show="activeSection === 'git'" />
       <!-- AI 设置 -->
@@ -338,7 +341,7 @@ onMounted(() => {
 }
 .settings-nav {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   flex-shrink: 0;
   margin-bottom: 18px;

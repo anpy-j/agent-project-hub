@@ -346,3 +346,12 @@ export interface BuildTarget {
   artifactPaths: string[]
   image?: string
 }
+
+export interface ProjectModule {
+  name: string
+  directory: string
+  type: ProjectType
+  framework: string | null
+  dockerfiles: string[]
+  target: BuildTarget
+}

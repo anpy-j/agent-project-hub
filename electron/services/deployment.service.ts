@@ -1,3 +1,9 @@
+import { AliyunRegistryClient } from './aliyun-registry'
+import { readRegistryCatalog } from './registry-browser'
+import { RegistryClient } from './registry-client'
+import { containerUpdatePlan, containerUpdateOperation, type ContainerInspection } from './container-update'
+import { runnerService } from './runner.service'
+import { listBuildTargets } from './build-targets'
 import { spawn } from 'child_process'
 import { randomUUID } from 'crypto'
 import { mkdtemp, rm } from 'fs/promises'
@@ -11,7 +17,7 @@ import { connectHost, sshExec } from './deployment-ssh'
 import { deployScript } from './deployment-script'
 import { prepareDockerBuild } from './deployment-build'
 import { dockerfilePath, quote, remoteCommand, validateConfig } from './deployment-validation'
-import type { DeployConfig, ReleaseAction, ReleaseJob, RemoteAction, RemoteSnapshot } from '../../src/types/deployment'
+import type { DeployConfig, ReleaseAction, ReleaseJob, RemoteAction, RemoteSnapshot, RegistryCatalog } from '../../src/types/deployment'
 
 const activeProjects = new Set<string>(), activeHosts = new Set<string>()
 export function hasActiveReleases(): boolean { return activeProjects.size > 0 }
@@ -49,15 +55,16 @@ async function withHost<T>(id: string, run: (client: Awaited<ReturnType<typeof c
   try { return await run(client) } finally { client.end() }
 }
 export async function testHost(id: string): Promise<string> {
-  return withHost(id, client => sshExec(client, 'uname -sm; docker version --format "{{.Server.Version}}"; docker compose version'))
+  return withHost(id, client => sshExec(client, 'set -e; uname -sm; if command -v docker >/dev/null; then docker version --format "{{.Server.Version}}"; else echo "Docker 未安装，可管理自有服务"; fi'))
 }
 function jsonLines(text: string): Array<Record<string, string>> {
   return text.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
 }
-export async function remoteSnapshot(id: string): Promise<RemoteSnapshot> {
+export async function remoteSnapshot(id: string, scope: 'docker' | 'services' | 'all' = 'all'): Promise<RemoteSnapshot> {
+  if (!['docker', 'services', 'all'].includes(scope)) throw new Error('不支持的服务器资源类型')
   return withHost(id, async client => {
     // Commands are independent; a host without systemd can still inspect Docker.
-    const metrics = await sshExec(client, `set -e
+    const metrics = scope !== 'all' ? '' : await sshExec(client, `set -e
 cpu_sample() { awk '/^cpu / {total=0; for(i=2;i<=9;i++) total+=$i; print total,$5+$6}' /proc/stat; }
 first=$(cpu_sample)
 sleep 0.4
@@ -66,10 +73,14 @@ awk -v first="$first" -v second="$second" 'BEGIN {split(first,a); split(second,b
 uptime
 free -h
 df -h /`)
-    const containers = jsonLines(await sshExec(client, `docker ps -a --format '{{json .}}'`))
-    const images = jsonLines(await sshExec(client, `docker images --format '{{json .}}'`))
+    const containers = scope === 'services' ? [] : jsonLines(await sshExec(client, `docker ps -a --no-trunc --format '{{json .}}'`))
+    for (const container of containers) {
+      const source = container.Labels?.split(',').find(label => label.startsWith('project-hub.source-image='))?.slice('project-hub.source-image='.length)
+      if (source) container.Image = source
+    }
+    const images = scope === 'services' ? [] : jsonLines(await sshExec(client, `docker images --no-trunc --format '{{json .}}'`))
     let services: RemoteSnapshot['services'] = []
-    try {
+    if (scope !== 'docker') try {
       const text = await sshExec(client, 'systemctl list-units --type=service --all --no-pager --no-legend --plain')
       services = text.split('\n').map(line => line.trim().replace(/^[●○•]\s*/, '').split(/\s+/)).filter(parts => parts.length >= 4)
         .map(parts => ({ name: parts[0], active: parts[2], sub: parts[3], description: parts.slice(4).join(' ') }))
@@ -77,25 +88,86 @@ df -h /`)
     return { metrics, containers, images, services }
   })
 }
+export async function registryCatalog(id: string): Promise<RegistryCatalog> {
+  const registry = store.registry(id), secret = store.registrySecret(id)
+  if (registry.aliyun) {
+    const client = new AliyunRegistryClient(registry.aliyun.regionId, registry.server, store.registryManagementSecret(id))
+    try { return await client.catalog() } finally { client.close() }
+  }
+  const known = [...(registry.repositories || []), ...store.configs().filter(config => config.registryId === id).map(config => config.repository)]
+  const prefix = registry.server + '/'
+  for (const job of store.jobs()) if (job.image.startsWith(prefix)) known.push(job.image.slice(prefix.length).split(/[:@]/)[0])
+  return readRegistryCatalog(new RegistryClient(registry, secret.password), known)
+}
+export async function registryTags(id: string, repository: string): Promise<string[]> {
+  const registry = store.registry(id)
+  let tags: string[]
+  if (registry.aliyun) {
+    const client = new AliyunRegistryClient(registry.aliyun.regionId, registry.server, store.registryManagementSecret(id))
+    try { tags = await client.tags(repository) } finally { client.close() }
+  } else tags = await new RegistryClient(registry, store.registrySecret(id).password).tags(repository)
+  store.rememberRepository(id, repository, registry.server)
+  return tags
+}
+function imageRegistry(image: string, registryId?: string) {
+  const first = image.split('/')[0]
+  const domain = image.includes('/') && (first.includes('.') || first.includes(':') || first === 'localhost') ? first : 'docker.io'
+  const normalize = (value: string) => ['index.docker.io', 'registry-1.docker.io'].includes(value) ? 'docker.io' : value
+  const registry = registryId ? store.registry(registryId) : store.registries().find(profile => normalize(profile.server) === normalize(domain))
+  if (registry && normalize(registry.server) !== normalize(domain)) throw new Error('所选仓库连接与镜像地址不匹配')
+  return registry
+}
 export async function remoteAction(id: string, request: RemoteAction): Promise<string> {
-  if (activeHosts.has(id)) throw new Error('该服务器正在发布，请等待发布完成')
-  const command = remoteCommand(request)
+  if (activeHosts.has(id)) throw new Error('该服务器正在执行操作，请稍后再试')
+  const updating = request.kind === 'container' && request.action === 'update'
+  if (updating && !/^[a-f0-9]{12,64}$/.test(request.target)) throw new Error('更新容器请使用完整的容器 ID')
+  const command = updating ? '' : remoteCommand(request)
   activeHosts.add(id)
-  try { return await withHost(id, client => sshExec(client, command, { timeout: request.action === 'pull' ? 10 * 60 * 1000 : 60000 })) }
-  finally { activeHosts.delete(id) }
+  let password = ''
+  try {
+    return await withHost(id, async client => {
+      if (updating) {
+        const containers = JSON.parse(await sshExec(client, `docker inspect ${quote(request.target)}`)) as ContainerInspection[]
+        if (containers.length !== 1) throw new Error('无法确定目标容器')
+        const container = containers[0]
+        const registry = imageRegistry(containerUpdatePlan(container).image, request.registryId)
+        password = registry ? store.registrySecret(registry.id).password : ''
+        const operation = containerUpdateOperation(container, registry ? { ...registry, password } : undefined)
+        return await sshExec(client, `bash -c ${quote(operation.script)}`, { input: operation.input, timeout: 20 * 60 * 1000 })
+      }
+      if (request.kind === 'image' && request.action === 'pull') {
+        const registry = imageRegistry(request.target, request.registryId)
+        if (registry) {
+          password = store.registrySecret(registry.id).password
+          const script = `set -e
+config_dir=$(mktemp -d)
+trap 'rm -rf "$config_dir"' EXIT
+export DOCKER_CONFIG="$config_dir"
+docker login ${quote(registry.server)} -u ${quote(registry.username)} --password-stdin
+${command}`
+          return await sshExec(client, `bash -c ${quote(script)}`, { input: password + '\n', timeout: 10 * 60 * 1000 })
+        }
+      }
+      return await sshExec(client, command, { timeout: 60000 })
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(password ? message.split(password).join('[REDACTED]') : message)
+  } finally { activeHosts.delete(id) }
 }
 export function saveDeployConfig(config: DeployConfig): DeployConfig {
   validateConfig(config)
   const project = projectRepo.get(config.projectId)
   if (!project) throw new Error('项目不存在')
   dockerfilePath(project.path, config.dockerfile)
+  if (config.buildTargetId && !listBuildTargets(project).some(target => target.id === config.buildTargetId)) throw new Error('项目构建目标不存在，请重新选择')
   store.registry(config.registryId)
   if (config.hostId) store.host(config.hostId)
   if (activeProjects.has(config.projectId)) throw new Error('项目正在发布，不能修改配置')
   return store.saveConfig(config)
 }
 export function startRelease(projectId: string, action: ReleaseAction): string {
-  if (!['build', 'push', 'deploy', 'all'].includes(action)) throw new Error('不支持的发布动作')
+  if (!['build', 'buildPush', 'push', 'deploy', 'all'].includes(action)) throw new Error('不支持的发布动作')
   if (activeProjects.has(projectId)) throw new Error('项目已有发布任务正在执行')
   const config = store.config(projectId), project = projectRepo.get(projectId)
   if (!config || !project) throw new Error('请先保存项目发布配置')
@@ -130,7 +202,11 @@ async function executeRelease(job: ReleaseJob, config: DeployConfig, cwd: string
   try {
     await withDockerConfig(async directory => {
       const docker = (args: string[], input?: string) => dockerCommand(['--config', directory, ...args], { cwd, input })
-      if (job.action === 'build' || job.action === 'all') {
+      if (job.action === 'build' || job.action === 'buildPush' || job.action === 'all') {
+        if (config.buildTargetId) {
+          stage('项目构建')
+          await runnerService.buildAndWait(job.projectId, config.buildTargetId, text => log(text))
+        }
         const build = await prepareDockerBuild(cwd, config, job.image)
         stage('登录镜像仓库')
         await docker(['login', registry.server, '-u', registry.username, '--password-stdin'], secret.password + '\n')
@@ -138,7 +214,7 @@ async function executeRelease(job: ReleaseJob, config: DeployConfig, cwd: string
         log(`Dockerfile：${build.file}\n构建目录：${build.context}\n`)
         log(await docker(build.args))
       }
-      if (job.action === 'push' || job.action === 'all') {
+      if (job.action === 'push' || job.action === 'buildPush' || job.action === 'all') {
         stage('上传镜像')
         await docker(['login', registry.server, '-u', registry.username, '--password-stdin'], secret.password + '\n')
         log(await docker(['push', job.image]))

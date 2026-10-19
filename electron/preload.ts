@@ -77,6 +77,8 @@ const api: ProjectHubAPI = {
     chat: input => invoke('skills:chat', input)
   },
   deployment: {
+    registryCatalog: id => invoke('deployment:registryCatalog', id),
+    registryTags: (id, repository) => invoke('deployment:registryTags', id, repository),
     registries: () => invoke('deployment:registries'),
     saveRegistry: (input) => invoke('deployment:saveRegistry', input),
     removeRegistry: (id) => invoke('deployment:removeRegistry', id),
@@ -88,7 +90,7 @@ const api: ProjectHubAPI = {
     pickPrivateKey: () => invoke('deployment:pickPrivateKey'),
     fingerprint: (host, port) => invoke('deployment:fingerprint', host, port),
     testHost: (id) => invoke('deployment:testHost', id),
-    snapshot: (id) => invoke('deployment:snapshot', id),
+    snapshot: (id, scope) => invoke('deployment:snapshot', id, scope),
     remoteAction: (id, action) => invoke('deployment:remoteAction', id, action),
     config: (id) => invoke('deployment:config', id),
     saveConfig: (config) => invoke('deployment:saveConfig', config),
@@ -110,6 +112,7 @@ const api: ProjectHubAPI = {
     remove: (id: string) => invoke('project:remove', id),
     syncRemotes: (id: string) => invoke('project:syncRemotes', id),
     detect: (path: string) => invoke('project:detect', path),
+    modules: (id: string) => invoke('project:modules', id),
     buildTargets: (id: string) => invoke('project:buildTargets', id),
     flutterEnvironment: (id: string, target: import('../src/types').BuildTarget) => invoke('project:flutterEnvironment', id, target),
     saveBuildTargets: (id: string, targets: import('../src/types').BuildTarget[]) => invoke('project:saveBuildTargets', id, targets),

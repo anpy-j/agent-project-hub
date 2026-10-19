@@ -60,6 +60,7 @@ export interface ProjectHubAPI {
     remove: (id: string) => Promise<void>
     syncRemotes: (id: string) => Promise<Project | null>
     detect: (path: string) => Promise<DetectResult>
+    modules: (id: string) => Promise<import('../types').ProjectModule[]>
     buildTargets: (id: string) => Promise<import('../types').BuildTarget[]>
     flutterEnvironment: (id: string, target: import('../types').BuildTarget) => Promise<{ sdk: string; version: string; source: string; javaHome: string; javaVersion: string; androidSdk: string; errors: string[]; warnings: string[] }>,
     saveBuildTargets: (id: string, targets: import('../types').BuildTarget[]) => Promise<void>

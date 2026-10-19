@@ -79,7 +79,7 @@ interface DetectAtResult {
   framework: string | null
 }
 
-function detectAt(projectPath: string): DetectAtResult | null {
+export function detectAt(projectPath: string): DetectAtResult | null {
   if (existsSync(join(projectPath, 'pom.xml'))) {
     return { type: 'java-maven', framework: detectFramework('java-maven', projectPath) }
   }
